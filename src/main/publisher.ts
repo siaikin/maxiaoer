@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import type { Post, PublishJob, PublishTask } from '../shared/types'
 import { defaultSettings } from '../shared/types'
 import { validatePost } from '../shared/validate'
@@ -75,6 +75,8 @@ async function runTask(job: PublishJob, task: PublishTask) {
   if (errors.length) return update({ status: 'failed', error: errors.join('；') })
 
   update({ status: 'running', startedAt: Date.now(), progress: '准备中', error: undefined })
+  // 开发时 MXE_DRY_RUN=1：表单填好后不提交，窗口保留
+  const dryRun = !app.isPackaged && process.env.MXE_DRY_RUN === '1'
   try {
     // 先显示窗口，便于观察和处理验证码；流程稳定后可改为后台运行
     const result = await withBrowser(
@@ -88,11 +90,13 @@ async function runTask(job: PublishJob, task: PublishTask) {
             images: post.images.map((i) => i.path),
             topics: post.topics.slice(0, adapter.limits.maxTopics),
             settings: { ...defaultSettings(adapter.settings), ...post.settings[account.id] },
+            dryRun,
           },
           (progress) => update({ progress }),
         ),
-      { show: true },
+      { show: true, keepOpen: dryRun },
     )
+    if (dryRun) return update({ status: 'failed', error: '试运行：表单已填好，没有提交', progress: undefined, finishedAt: Date.now() })
     update({ status: 'success', ...result, progress: undefined, finishedAt: Date.now() })
   } catch (e) {
     update({ status: 'failed', error: e instanceof Error ? e.message : String(e), progress: undefined, finishedAt: Date.now() })

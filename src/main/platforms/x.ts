@@ -61,6 +61,7 @@ export const x: PlatformAdapter = {
       await ctx.click('div[role="menuitem"]', replies)
     }
 
+    if (input.dryRun) return {}
     onProgress('提交发布')
     const res = await ctx.captureResponse<{ data?: { create_tweet?: { tweet_results?: { result?: { rest_id?: string } } } }; errors?: { message: string }[] }>(
       '/CreateTweet',

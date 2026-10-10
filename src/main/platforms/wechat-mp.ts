@@ -36,7 +36,7 @@ export const wechatMp: PlatformAdapter = {
   color: '#07c160',
   loginUrl: 'https://mp.weixin.qq.com/',
   homeUrl: 'https://mp.weixin.qq.com/',
-  limits: { titleMax: 64, contentMax: 1000, minImages: 1, maxImages: 20, requiresTitle: false },
+  limits: { titleMax: 20, contentMax: 1000, minImages: 1, maxImages: 20, requiresTitle: false },
   settings: [
     { key: 'comment', label: '开启留言', type: 'switch', default: true },
     { key: 'fansOnlyComment', label: '仅关注者可留言', type: 'switch', default: false },
@@ -54,6 +54,8 @@ export const wechatMp: PlatformAdapter = {
     const info = await readInfo(ctx)
     if (!info) throw new Error('公众号登录已失效，请重新扫码')
 
+    // 试运行不上传：上传会写进公众号素材库
+    if (input.dryRun) return {}
     const images: { url: string; file_id: number; cdn_url: string }[] = []
     for (const [i, path] of input.images.entries()) {
       onProgress(`上传图片 ${i + 1}/${input.images.length}`)
@@ -74,7 +76,7 @@ export const wechatMp: PlatformAdapter = {
     onProgress('创建图片消息')
     // 话题在公众号里没有原生标签，按 #话题 追加在正文末尾
     const body = [input.content, input.topics.map((t) => `#${t}`).join(' ')].filter(Boolean).join('\n').slice(0, 1000)
-    const title = (input.title || input.content.trim().split('\n')[0]).slice(0, 64)
+    const title = (input.title || input.content.trim().split('\n')[0]).slice(0, 20)
     const s = input.settings
     const created = await pageFetchForm<{ appMsgId?: string; base_resp?: { err_msg: string } }>(
       ctx,
@@ -94,10 +96,10 @@ export const wechatMp: PlatformAdapter = {
 
     onProgress('发表（如需扫码验证，请在弹出的窗口里完成）')
     await ctx.goto(
-      `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&action=edit&type=77&appmsgid=${created.appMsgId}&token=${info.token}&lang=zh_CN`,
+      `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&type=77&appmsgid=${created.appMsgId}&token=${info.token}&lang=zh_CN`,
     )
-    // TODO(实测): 编辑页“发表”按钮和确认弹窗
-    await ctx.click('button, span.weui-desktop-btn', '发表')
+    // TODO(实测): 发表后的确认弹窗
+    await ctx.click('button.mass_send', '发表')
     await ctx.sleep(1000)
     await ctx.click('.weui-desktop-dialog button, .weui-desktop-popover button', '发表')
     // 有时需要管理员扫码确认，最多等 3 分钟

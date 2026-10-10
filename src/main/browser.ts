@@ -23,6 +23,8 @@ export async function createBrowserContext(accountId: string, opts: { show?: boo
     show: opts.show ?? false,
     webPreferences: { partition: partitionFor(accountId), contextIsolation: true, sandbox: true },
   })
+  // 还没有渲染进程时 CDP 命令会一直挂起，先加载空白页再挂调试器
+  await win.loadURL('about:blank')
   const dbg = win.webContents.debugger
   dbg.attach('1.3')
   const cdp = <T = any>(method: string, params?: object) => dbg.sendCommand(method, params) as Promise<T>
@@ -46,15 +48,44 @@ export async function createBrowserContext(accountId: string, opts: { show?: boo
   const locate = (selector: string, text?: string) =>
     evaluate<{ x: number; y: number } | null>(`(() => {
       const els = [...document.querySelectorAll(${q(selector)})]
-      const el = els.find((e) => {
-        const r = e.getBoundingClientRect()
-        return r.width > 0 && r.height > 0 && (${q(text ?? '')} === '' || e.textContent.includes(${q(text ?? '')}))
-      })
-      if (!el) return null
-      el.scrollIntoView({ block: 'center' })
-      const r = el.getBoundingClientRect()
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      // 有的页面把隐藏模板放在屏幕外很远的地方，滚动后仍不在可视区的元素跳过
+      for (const el of els) {
+        let r = el.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0 || getComputedStyle(el).visibility === 'hidden') continue
+        if (${q(text ?? '')} !== '' && !el.textContent.includes(${q(text ?? '')})) continue
+        el.scrollIntoView({ block: 'center' })
+        r = el.getBoundingClientRect()
+        if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) continue
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      }
+      return null
     })()`)
+
+  const mouseClick = async (pos: { x: number; y: number }) => {
+    await sleep(120)
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+      await cdp('Input.dispatchMouseEvent', { type, x: pos.x, y: pos.y, button: 'left', clickCount: 1 })
+    }
+  }
+
+  /** 在 host 的影子树（含 closed shadow root）里找文字等于 text 的元素，返回其 nodeId */
+  const findInShadow = async (host: string, text: string) => {
+    type Node = { nodeId: number; nodeType: number; nodeName: string; nodeValue: string; localName?: string; children?: Node[]; shadowRoots?: Node[] }
+    const { root } = await cdp<{ root: Node }>('DOM.getDocument', { depth: -1, pierce: true })
+    const { nodeId: hostId } = await cdp<{ nodeId: number }>('DOM.querySelector', { nodeId: root.nodeId, selector: host })
+    if (!hostId) return null
+    const walk = (n: Node, inHost: boolean): number | null => {
+      const inside = inHost || n.nodeId === hostId
+      const kids = [...(n.shadowRoots ?? []), ...(n.children ?? [])]
+      if (inside && n.nodeType === 1 && kids.some((c) => c.nodeType === 3 && c.nodeValue.trim() === text)) return n.nodeId
+      for (const c of kids) {
+        const hit = walk(c, inside)
+        if (hit) return hit
+      }
+      return null
+    }
+    return walk(root, false)
+  }
 
   const ctx: BrowserContext = {
     async goto(url) {
@@ -91,10 +122,15 @@ export async function createBrowserContext(accountId: string, opts: { show?: boo
         pos = await locate(selector, text)
       }
       if (!pos) throw new Error(`找不到可点击的元素：${selector}${text ? `「${text}」` : ''}`)
-      await sleep(120)
-      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
-        await cdp('Input.dispatchMouseEvent', { type, x: pos.x, y: pos.y, button: 'left', clickCount: 1 })
-      }
+      await mouseClick(pos)
+    },
+    async clickInShadow(host, text) {
+      const nodeId = await findInShadow(host, text)
+      if (!nodeId) throw new Error(`找不到可点击的元素：${host}「${text}」`)
+      await cdp('DOM.scrollIntoViewIfNeeded', { nodeId })
+      const { model } = await cdp<{ model: { border: number[] } }>('DOM.getBoxModel', { nodeId })
+      const [x1, y1, , , x3, y3] = model.border
+      await mouseClick({ x: (x1 + x3) / 2, y: (y1 + y3) / 2 })
     },
     async type(selector, text) {
       await ctx.click(selector)
@@ -159,11 +195,17 @@ export async function createBrowserContext(accountId: string, opts: { show?: boo
 }
 
 /** 在一个账号的分区里执行一段自动化，结束后关闭窗口 */
-export async function withBrowser<T>(accountId: string, fn: (ctx: BrowserContext) => Promise<T>, opts: { show?: boolean } = {}) {
+export async function withBrowser<T>(
+  accountId: string,
+  fn: (ctx: BrowserContext) => Promise<T>,
+  opts: { show?: boolean; keepOpen?: boolean } = {},
+) {
   const browser = await createBrowserContext(accountId, opts)
   try {
     return await fn(browser.ctx)
   } finally {
-    browser.dispose()
+    // 试运行时留着窗口，方便检查填好的表单
+    if (opts.keepOpen) browser.win.webContents.debugger.detach()
+    else browser.dispose()
   }
 }

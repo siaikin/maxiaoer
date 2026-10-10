@@ -55,6 +55,7 @@ export const facebook: PlatformAdapter = {
       await until(ctx, () => ctx.evaluate<boolean>(`document.querySelectorAll('div[role="dialog"] img[src^="blob:"]').length >= ${input.images.length}`), 60_000, '图片上传超时')
     }
 
+    if (input.dryRun) return {}
     onProgress('提交发布')
     await ctx.click(postLabels.map((l) => `div[role="dialog"] div[aria-label="${l}"]`).join(', '))
     await until(ctx, async () => !(await ctx.exists(editor)), 60_000, '发帖框没有关闭，可能发布失败')

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { defaultSettings, type Account, type PlatformId, type Post, type SettingValues } from '../../../shared/types'
+import { withLastSettings, type Account, type PlatformId, type Post, type SettingValues } from '../../../shared/types'
 import { validatePost } from '../../../shared/validate'
 import AccountAvatar from '../components/AccountAvatar.vue'
 import AccountSettings from '../components/AccountSettings.vue'
@@ -43,9 +43,7 @@ const groups = computed(() =>
 const selectedAccounts = computed(() => accounts.value.filter((a) => selected.value.includes(a.id)))
 
 function initialSettings(a: Account): SettingValues {
-  const defaults = defaultSettings(platformMap.value[a.platform].settings)
-  const last = lastSettings.value[a.id]
-  return useLast[a.id] !== false && last ? { ...defaults, ...last } : defaults
+  return withLastSettings(platformMap.value[a.platform].settings, useLast[a.id] !== false ? lastSettings.value[a.id] : undefined)
 }
 
 // 勾选账号时生成它的配置
