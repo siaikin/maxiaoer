@@ -1,0 +1,12 @@
+appId: com.siaikin.maxiaoer
+productName: 蚂小儿
+directories:
+  output: release
+files:
+  - out/**
+mac:
+  target: dmg
+win:
+  target: nsis
+linux:
+  target: AppImage

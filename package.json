@@ -1,0 +1,23 @@
+{
+  "name": "maxiaoer",
+  "private": true,
+  "version": "0.1.0",
+  "description": "一键发布图文到小红书 / 微博 / 微信公众号 / X / Facebook 的桌面工具（参考蚁小二）",
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "dev": "pnpm --filter @maxiaoer/desktop dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  }
+}
