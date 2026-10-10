@@ -125,6 +125,9 @@ export async function createBrowserContext(accountId: string, opts: { show?: boo
       if (!pos) throw new Error(`找不到可点击的元素：${selector}${text ? `「${text}」` : ''}`)
       await mouseClick(pos)
     },
+    reveal() {
+      if (!win.isVisible()) win.showInactive()
+    },
     async hover(selector) {
       await ctx.waitFor(selector)
       const pos = await locate(selector)

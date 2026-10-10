@@ -78,7 +78,7 @@ async function runTask(job: PublishJob, task: PublishTask) {
   // 开发时 MXE_DRY_RUN=1：表单填好后不提交，窗口保留
   const dryRun = !app.isPackaged && process.env.MXE_DRY_RUN === '1'
   try {
-    // 先显示窗口，便于观察和处理验证码；流程稳定后可改为后台运行
+    // 后台运行，不打扰用户；需要扫码时适配器会把窗口显示出来（不抢焦点）。试运行时显示，方便检查表单
     const result = await withBrowser(
       account.id,
       (ctx) =>
@@ -94,7 +94,7 @@ async function runTask(job: PublishJob, task: PublishTask) {
           },
           (progress) => update({ progress }),
         ),
-      { show: true, keepOpen: dryRun },
+      { show: dryRun, keepOpen: dryRun },
     )
     if (dryRun) return update({ status: 'failed', error: '试运行：表单已填好，没有提交', progress: undefined, finishedAt: Date.now() })
     update({ status: 'success', ...result, progress: undefined, finishedAt: Date.now() })
@@ -112,7 +112,7 @@ export async function deleteRemote(jobId: string, taskId: string) {
   const update = updater(job, task)
   update({ status: 'deleting', error: undefined })
   try {
-    await withBrowser(task.accountId, (ctx) => adapter.deleteRemote!(ctx, { remoteId: task.remoteId, url: task.url }), { show: true })
+    await withBrowser(task.accountId, (ctx) => adapter.deleteRemote!(ctx, { remoteId: task.remoteId, url: task.url }))
     update({ status: 'deleted', finishedAt: Date.now() })
   } catch (e) {
     update({ status: 'success', error: `删除失败：${e instanceof Error ? e.message : String(e)}` })

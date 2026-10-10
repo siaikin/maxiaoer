@@ -15,6 +15,8 @@ export interface BrowserContext {
   waitForUrl(test: (url: string) => boolean, timeoutMs?: number): Promise<void>
   /** 用真实鼠标事件点击元素；text 不为空时点第一个文字包含 text 的可见元素 */
   click(selector: string, text?: string): Promise<void>
+  /** 需要用户操作（如扫码验证）时把后台窗口显示出来，不抢焦点 */
+  reveal(): void
   /** 鼠标移到元素上（触发只在悬停时出现的操作按钮） */
   hover(selector: string): Promise<void>
   /** 点击 host 影子树（含 closed shadow root）里文字等于 text 的元素 */

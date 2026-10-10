@@ -94,7 +94,7 @@ export const wechatMp: PlatformAdapter = {
     )
     if (!created.appMsgId) throw new Error(`创建失败：${created.base_resp?.err_msg ?? '未知错误'}`)
 
-    onProgress('发表（如需扫码验证，请在弹出的窗口里完成）')
+    onProgress('发表（如需扫码验证，会弹出窗口）')
     await ctx.goto(
       `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&type=77&appmsgid=${created.appMsgId}&token=${info.token}&lang=zh_CN`,
     )
@@ -105,9 +105,15 @@ export const wechatMp: PlatformAdapter = {
     await ctx.click('button.mass_send', '发表')
     await ctx.click('.weui-desktop-dialog__wrp button.weui-desktop-btn_primary', '发表')
     // 发表成功会离开编辑页；有时需要管理员扫码确认，最多等 3 分钟
-    await ctx.waitForUrl((u) => !u.includes('appmsg_edit'), 180_000).catch(() => {
-      throw new Error('发表没有完成（可能未扫码确认）')
-    })
+    await until(
+      ctx,
+      async () => {
+        await revealQrCode(ctx)
+        return !ctx.currentUrl().includes('appmsg_edit')
+      },
+      180_000,
+      '发表没有完成（可能未扫码确认）',
+    )
 
     onProgress('读取发表链接')
     const url = await findPublished(ctx, info.token, title).catch(() => undefined)
@@ -143,6 +149,7 @@ export const wechatMp: PlatformAdapter = {
     await until(
       ctx,
       async () => {
+        await revealQrCode(ctx)
         const status = await ctx.evaluate<string>(`document.querySelector(${JSON.stringify(block)})?.innerText ?? ''`)
         return !status || status.includes('已删除')
       },
@@ -150,6 +157,12 @@ export const wechatMp: PlatformAdapter = {
       '删除没有完成（需要管理员在弹出的窗口里扫码验证）',
     )
   },
+}
+
+/** 弹出「扫码验证」时把后台窗口显示出来，等管理员扫码 */
+async function revealQrCode(ctx: BrowserContext) {
+  const asking = await ctx.evaluate<boolean>(`[...document.querySelectorAll('.weui-desktop-dialog')].some((d) => d.offsetWidth && d.textContent.includes('扫码验证'))`)
+  if (asking) ctx.reveal()
 }
 
 const publishListUrl = (token: string) => `https://mp.weixin.qq.com/cgi-bin/appmsgpublish?sub=list&begin=0&count=10&token=${token}&lang=zh_CN`
