@@ -178,17 +178,23 @@ const publishListUrl = (token: string) => `https://mp.weixin.qq.com/cgi-bin/appm
 
 /** 发表记录里第一条标题匹配的内容链接（列表按时间倒序） */
 async function findPublished(ctx: BrowserContext, token: string, title: string) {
-  await ctx.goto(publishListUrl(token))
-  return until(
-    ctx,
-    () =>
-      ctx.evaluate<string | null>(`(() => {
-        const b = [...document.querySelectorAll('.publish_record_history .weui-desktop-block')].find((e) => e.innerText.includes(${JSON.stringify(title)}))
-        return b?.querySelector('a[href*="/s/"]')?.href ?? null
-      })()`),
-    15_000,
-    '发表记录里没找到刚发表的内容',
-  )
+  // 刚发表时记录可能还没出现或还没有链接，列表不会自己刷新，所以每轮重新打开
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    await ctx.goto(publishListUrl(token))
+    const url = await until(
+      ctx,
+      () =>
+        ctx.evaluate<string | null>(`(() => {
+          const b = [...document.querySelectorAll('.publish_record_history .weui-desktop-block')].find((e) => e.innerText.includes(${JSON.stringify(title)}))
+          return b?.querySelector('a[href*="/s/"]')?.href ?? null
+        })()`),
+      8_000,
+      '发表记录里没找到刚发表的内容',
+    ).catch(() => null)
+    if (url) return url
+  }
+  throw new Error('发表记录里没找到刚发表的内容')
 }
 
 /** 给发表记录里链接为 url 的那一条打标记，返回选择器 */
