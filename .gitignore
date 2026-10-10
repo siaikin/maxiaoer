@@ -6,3 +6,5 @@ release/
 .DS_Store
 .env*
 !.env.example
+src/renderer/auto-imports.d.ts
+src/renderer/components.d.ts
