@@ -99,8 +99,9 @@ export const wechatMp: PlatformAdapter = {
     await ctx.goto(
       `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&type=77&appmsgid=${created.appMsgId}&token=${info.token}&lang=zh_CN`,
     )
-    // 编辑页里的图片是异步加载的，没加载完就点发表会提示“必须插入一张图片”
-    await until(ctx, () => ctx.evaluate<boolean>(`!!document.querySelector('.image-selector__bottom-list-item img[src*="mmbiz"]')`), 30_000, '编辑页图片加载超时')
+    // 编辑页里的图片是异步加载的，没加载完就点发表会提示“必须插入一张图片”。
+    // 底部缩略图有两种渲染：普通图是 <img>，长图是带 background-image 的 div，两种都要认
+    await until(ctx, () => ctx.evaluate<boolean>(imagesReady(images.length)), 30_000, '编辑页图片加载超时')
     await ctx.sleep(1000)
     // 点发表会先自动保存，几秒后弹出确认框（贴图不占群发次数）
     await ctx.click('button.mass_send', '发表')
@@ -165,6 +166,13 @@ async function revealQrCode(ctx: BrowserContext) {
   const asking = await ctx.evaluate<boolean>(`[...document.querySelectorAll('.weui-desktop-dialog')].some((d) => d.offsetWidth && d.textContent.includes('扫码验证'))`)
   if (asking) await ctx.reveal()
 }
+
+/** 编辑页底部缩略图里已经显示出 count 张公众号图片 */
+const imagesReady = (count: number) => `(() => {
+  const items = [...document.querySelectorAll('.image-selector__bottom-list-item')]
+  const loaded = items.filter((el) => el.querySelector('img[src*="mmbiz"]') || getComputedStyle(el).backgroundImage.includes('mmbiz'))
+  return loaded.length >= ${count}
+})()`
 
 const publishListUrl = (token: string) => `https://mp.weixin.qq.com/cgi-bin/appmsgpublish?sub=list&begin=0&count=10&token=${token}&lang=zh_CN`
 
