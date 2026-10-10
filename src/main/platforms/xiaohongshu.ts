@@ -9,6 +9,7 @@ import { clickWithin, mark, until } from './util'
  * 选择器在 2026-10 的创作平台页面上核对过。
  */
 const PUBLISH_URL = 'https://creator.xiaohongshu.com/publish/publish?source=official&target=image'
+const NOTE_MANAGER_URL = 'https://creator.xiaohongshu.com/new/note-manager'
 const CONTENT_EDITOR = 'div.tiptap[contenteditable="true"], div[role="textbox"][contenteditable="true"]'
 /** 内容类型声明一级选项 */
 const DECLARATIONS = ['虚构演绎，仅供娱乐', '笔记含AI合成内容', '内容包含营销广告']
@@ -108,8 +109,8 @@ export const xiaohongshu: PlatformAdapter = {
     onProgress('提交发布')
     let remoteId: string | undefined
     try {
-      const res = await ctx.captureResponse<{ data?: { id?: string } }>('/web_api/sns/v2/note', () => clickPublish(ctx), 20_000)
-      remoteId = res.data?.id
+      const res = await ctx.captureResponse<{ data?: { id?: string; note_id?: string } }>('/web_api/sns/v2/note', () => clickPublish(ctx), 20_000)
+      remoteId = res.data?.id ?? res.data?.note_id
     } catch {
       // 没抓到接口不影响发布结果判断，下面以页面跳转为准
     }
@@ -117,12 +118,17 @@ export const xiaohongshu: PlatformAdapter = {
     await ctx.waitForUrl((u) => !u.includes('/publish/publish'), 20_000).catch(() => {
       throw new Error('点击发布后没有跳转，可能校验没通过或被拦截')
     })
+    if (!remoteId) {
+      // 接口没带回 id 时，到笔记管理按标题找最新一篇（删除要用）
+      onProgress('读取笔记 id')
+      remoteId = await findNoteId(ctx, input.title || input.content.split('\n')[0]).catch(() => undefined)
+    }
     return { remoteId, url: remoteId ? `https://www.xiaohongshu.com/explore/${remoteId}` : undefined }
   },
 
   async deleteRemote(ctx, remote) {
     if (!remote.remoteId) throw new Error('没有记录到笔记 id，请到小红书后台手动删除')
-    await ctx.goto('https://creator.xiaohongshu.com/new/note-manager')
+    await ctx.goto(NOTE_MANAGER_URL)
     // 笔记卡片的埋点属性里带 noteId
     const id = JSON.stringify(remote.remoteId)
     await until(
@@ -159,6 +165,21 @@ export const xiaohongshu: PlatformAdapter = {
     )
     return (res.data?.collection_info_list ?? []).map((c) => ({ id: c.id, name: c.name.trim(), count: c.note_num }))
   },
+}
+
+/** 笔记管理里第一篇文字包含 text 的笔记 id（列表按发布时间倒序） */
+async function findNoteId(ctx: BrowserContext, text: string) {
+  await ctx.goto(NOTE_MANAGER_URL)
+  return until(
+    ctx,
+    () =>
+      ctx.evaluate<string | null>(`(() => {
+        const el = [...document.querySelectorAll('.note-card')].find((e) => e.innerText.includes(${JSON.stringify(text.slice(0, 20))}))
+        return el ? JSON.parse(el.getAttribute('data-impression') ?? '{}')?.noteTarget?.value?.noteId ?? null : null
+      })()`),
+    15_000,
+    '笔记管理里没找到刚发布的笔记',
+  )
 }
 
 async function openImageTab(ctx: BrowserContext) {

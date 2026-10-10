@@ -21,7 +21,8 @@ export async function createBrowserContext(accountId: string, opts: { show?: boo
     width: 1280,
     height: 900,
     show: opts.show ?? false,
-    webPreferences: { partition: partitionFor(accountId), contextIsolation: true, sandbox: true },
+    // 窗口被挡住时页面会变成 hidden、停掉 requestAnimationFrame，Facebook 的弹层就打不开
+    webPreferences: { partition: partitionFor(accountId), contextIsolation: true, sandbox: true, backgroundThrottling: false },
   })
   // 还没有渲染进程时 CDP 命令会一直挂起，先加载空白页再挂调试器
   await win.loadURL('about:blank')
@@ -123,6 +124,13 @@ export async function createBrowserContext(accountId: string, opts: { show?: boo
       }
       if (!pos) throw new Error(`找不到可点击的元素：${selector}${text ? `「${text}」` : ''}`)
       await mouseClick(pos)
+    },
+    async hover(selector) {
+      await ctx.waitFor(selector)
+      const pos = await locate(selector)
+      if (!pos) throw new Error(`找不到元素：${selector}`)
+      await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pos.x, y: pos.y })
+      await sleep(300)
     },
     async clickInShadow(host, text) {
       const nodeId = await findInShadow(host, text)

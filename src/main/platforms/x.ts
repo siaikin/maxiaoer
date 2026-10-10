@@ -17,8 +17,8 @@ export const x: PlatformAdapter = {
       key: 'replies',
       label: '谁可以回复',
       type: 'select',
-      options: ['所有人', '你关注的账号', '已认证账号', '你提及的账号'],
-      default: '所有人',
+      options: ['每个人', '你关注的账号', '你关注的账号及其关注的账号', '只有你提及的账号', '认证账号'],
+      default: '每个人',
     },
   ],
 
@@ -52,21 +52,35 @@ export const x: PlatformAdapter = {
       await until(ctx, () => ctx.evaluate<boolean>(`document.querySelectorAll('[data-testid="attachments"] img').length >= ${input.images.length}`), 60_000, '图片上传超时')
     }
 
-    const replies = String(input.settings.replies ?? '所有人')
-    if (replies !== '所有人') {
+    const replies = String(input.settings.replies ?? '每个人')
+    if (replies !== '每个人') {
       onProgress('设置谁可以回复')
-      // TODO(实测): 回复权限按钮；界面语言不同文字不同
-      await ctx.click('button[aria-label*="reply"], button[aria-label*="回复"]')
-      await ctx.sleep(500)
-      await ctx.click('div[role="menuitem"]', replies)
+      // 选项文字按中文界面；「你关注的账号」排在「…及其关注的账号」前面，包含匹配会先命中它
+      const button = '[aria-modal="true"] button[aria-label*="可以回复"], [aria-modal="true"] button[aria-label*="can reply"]'
+      await ctx.click(button)
+      await ctx.sleep(800)
+      await ctx.click('[role="radiogroup"] label', replies)
+      await until(
+        ctx,
+        () => ctx.evaluate<boolean>(`!!document.querySelector(${JSON.stringify(button)})?.getAttribute('aria-label')?.startsWith(${JSON.stringify(replies)})`),
+        5000,
+        `「谁可以回复」没有设置成「${replies}」`,
+      )
     }
 
     if (input.dryRun) return {}
     onProgress('提交发布')
     const res = await ctx.captureResponse<{ data?: { create_tweet?: { tweet_results?: { result?: { rest_id?: string } } } }; errors?: { message: string }[] }>(
       '/CreateTweet',
-      () => ctx.click('button[data-testid="tweetButton"]'),
-      30_000,
+      async () => {
+        // 图片还在后台处理时点发帖不会有反应，没跳走就隔几秒再点
+        for (let i = 0; i < 4; i++) {
+          if (!(await ctx.exists('button[data-testid="tweetButton"]'))) return
+          await ctx.click('button[data-testid="tweetButton"]')
+          await ctx.sleep(5000)
+        }
+      },
+      45_000,
     )
     const id = res.data?.create_tweet?.tweet_results?.result?.rest_id
     if (!id) throw new Error(res.errors?.[0]?.message ?? 'X 返回发布失败')
@@ -77,10 +91,14 @@ export const x: PlatformAdapter = {
     if (!remote.remoteId) throw new Error('没有记录到帖子 id')
     await ctx.goto(`https://x.com/i/web/status/${remote.remoteId}`)
     await ctx.waitFor('article [data-testid="caret"]', 20_000)
-    await ctx.click('article [data-testid="caret"]')
-    await ctx.sleep(500)
-    // 菜单第一项红色的“删除 / Delete”
-    await ctx.click('div[role="menuitem"]', (await ctx.exists('html[lang^="zh"]')) ? '删除' : 'Delete')
+    // 菜单第一项红色的“删除 / Delete”；菜单偶尔没弹出来，重点一次
+    const label = (await ctx.exists('html[lang^="zh"]')) ? '删除' : 'Delete'
+    for (let i = 0; i < 3; i++) {
+      await ctx.click('article [data-testid="caret"]')
+      const opened = await until(ctx, () => ctx.exists('div[role="menuitem"]'), 3000, '').catch(() => false)
+      if (opened) break
+    }
+    await ctx.click('div[role="menuitem"]', label)
     await ctx.captureResponse('/DeleteTweet', () => ctx.click('button[data-testid="confirmationSheetConfirm"]'), 20_000)
   },
 }
