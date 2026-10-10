@@ -99,3 +99,15 @@ export interface PlatformInfo {
 export function defaultSettings(fields: PlatformSettingField[]): SettingValues {
   return Object.fromEntries(fields.map((f) => [f.key, f.default]))
 }
+
+/** 默认配置叠加上次的选择；平台改版后已不存在的选项丢弃，回到默认值 */
+export function withLastSettings(fields: PlatformSettingField[], last?: SettingValues): SettingValues {
+  const values = defaultSettings(fields)
+  if (!last) return values
+  for (const f of fields) {
+    if (!(f.key in last)) continue
+    const v = last[f.key]
+    if (f.type === 'select' ? typeof v === 'string' && f.options.includes(v) : f.type === 'switch' ? typeof v === 'boolean' : true) values[f.key] = v
+  }
+  return values
+}

@@ -35,11 +35,13 @@ src/
 | --- | --- | --- |
 | 小红书 | [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp)（Apache-2.0）：上传、标题正文、话题联想、可见范围、原创声明、发布按钮 | 笔记管理页 |
 | 微博 | [leaperone/MultiPost-Extension](https://github.com/leaperone/MultiPost-Extension)（Apache-2.0） | `/ajax/statuses/destroy` |
-| 微信公众号 | MultiPost-Extension：后台接口上传图片、创建图片消息 | 后台接口 |
+| 微信公众号 | MultiPost-Extension：后台接口上传图片、创建图片消息 | 发表记录页（需管理员扫码） |
 | X | MultiPost-Extension | 帖子菜单 |
-| Facebook | MultiPost-Extension | 暂不支持 |
+| Facebook | MultiPost-Extension | 帖子菜单 |
 
-代码里标了 `TODO(实测)` 的地方是参考项目没有覆盖、需要登录真实账号确认的选择器或接口（如小红书合集下拉、内容类型声明、各平台可见范围按钮、公众号发表确认）。
+选择器在 2026-10 用真实账号逐个平台发布、核对、删除过。界面文字按中文界面匹配，平台改版后需要重新核对。
+
+开发时可以用 `MXE_DEBUG_PORT=9333 pnpm dev` 打开远程调试端口，用 `MXE_DRY_RUN=1` 只填表单不提交。
 
 ## 开发
 

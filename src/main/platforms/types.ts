@@ -15,6 +15,12 @@ export interface BrowserContext {
   waitForUrl(test: (url: string) => boolean, timeoutMs?: number): Promise<void>
   /** 用真实鼠标事件点击元素；text 不为空时点第一个文字包含 text 的可见元素 */
   click(selector: string, text?: string): Promise<void>
+  /** 需要用户操作（如扫码验证）时把后台窗口显示出来，不抢焦点 */
+  reveal(): void
+  /** 鼠标移到元素上（触发只在悬停时出现的操作按钮） */
+  hover(selector: string): Promise<void>
+  /** 点击 host 影子树（含 closed shadow root）里文字等于 text 的元素 */
+  clickInShadow(host: string, text: string): Promise<void>
   /** 聚焦元素后用真实输入事件输入文字 */
   type(selector: string, text: string): Promise<void>
   /** 在当前焦点处输入 */
@@ -38,6 +44,8 @@ export interface PublishInput {
   images: string[]
   topics: string[]
   settings: SettingValues
+  /** 试运行：填好表单后不点发布（开发调试用） */
+  dryRun?: boolean
 }
 
 export interface PublishResult {
