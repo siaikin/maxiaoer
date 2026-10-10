@@ -35,7 +35,7 @@ interface CloakProcess {
 export interface CloakBrowser {
   connected: boolean
   pages(): Promise<CloakPage[]>
-  newPage(): Promise<CloakPage>
+  newPage(options?: { background?: boolean }): Promise<CloakPage>
   close(): Promise<void>
   on(event: 'disconnected', handler: () => void): void
   process(): CloakProcess | null
@@ -89,6 +89,8 @@ async function defaultLaunch(config: LaunchConfig): Promise<CloakBrowser> {
       timezone: config.timezone,
       userDataDir: config.userDataDir,
       args: config.args,
+      // 走管道而不是本机调试端口：带登录态的浏览器不对本机其他进程开放 CDP
+      launchOptions: { pipe: true },
     })) as unknown as CloakBrowser
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -196,10 +198,11 @@ export function createBrowserHost(deps: HostDeps) {
     return promise
   }
 
-  async function takePage(running: Running) {
+  async function takePage(running: Running, background = false) {
     const pages = await running.browser.pages()
     const blank = pages.find((page) => !running.tracked.has(page) && !page.isClosed() && (page.url() === 'about:blank' || page.url() === ''))
-    const page = blank ?? (await running.browser.newPage())
+    // 后台标签页不切走用户正在看的页面（比如登录时的二维码）
+    const page = blank ?? (await running.browser.newPage({ background }))
     running.tracked.add(page)
     page.on('close', () => {
       running.tracked.delete(page)
@@ -210,9 +213,12 @@ export function createBrowserHost(deps: HostDeps) {
     return page
   }
 
-  async function openTab(id: string, opts: { role: 'auto' | 'manual'; show?: boolean; onNavigate?: () => void }): Promise<TabSession> {
+  async function openTab(
+    id: string,
+    opts: { role: 'auto' | 'manual'; show?: boolean; background?: boolean; onNavigate?: () => void },
+  ): Promise<TabSession> {
     const running = await ensure(id)
-    const page = await takePage(running)
+    const page = await takePage(running, opts.background && running.manual.size > 0)
     const cdp = await page.createCDPSession()
     const ctx = await createPageContext(page, cdp)
     if (opts.role === 'manual') running.manual.add(page)
@@ -285,12 +291,20 @@ export function createBrowserHost(deps: HostDeps) {
     withBrowser<T>(
       id: string,
       fn: (ctx: PageContext) => Promise<T>,
-      opts: { show?: boolean; keepOpen?: boolean; key?: string; onWait?: (message: string) => void; onStart?: () => void } = {},
+      opts: {
+        show?: boolean
+        keepOpen?: boolean
+        /** 只做读取的探测（如登录检测）：有手动窗口时在后台标签页里跑，不切走用户正在看的页面 */
+        background?: boolean
+        key?: string
+        onWait?: (message: string) => void
+        onStart?: () => void
+      } = {},
     ) {
       return queue.run(opts.key ?? randomUUID(), id, async () => {
         if (closing.has(id)) throw new Error('账号已删除')
         opts.onStart?.()
-        const tab = await openTab(id, { role: 'auto', show: opts.show })
+        const tab = await openTab(id, { role: 'auto', show: opts.show, background: opts.background })
         try {
           return await fn(tab.ctx)
         } finally {

@@ -47,8 +47,10 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
     return { left: 0, top: 0, right: size.width, bottom: size.height }
   }
 
+  /** 找到第一个可见、可用的匹配元素，滚到可视区，并打上 data-mxe-click 标记供点击前复核 */
   const locate = (selector: string, text?: string) =>
     evaluate<Box | null>(`(() => {
+      for (const old of document.querySelectorAll('[data-mxe-click]')) old.removeAttribute('data-mxe-click')
       const els = [...document.querySelectorAll(${q(selector)})]
       for (const el of els) {
         const style = getComputedStyle(el)
@@ -63,14 +65,16 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
         if (right - left < 1 || bottom - top < 1) continue
         const disabled = el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true' || style.pointerEvents === 'none'
         if (disabled) continue
+        el.setAttribute('data-mxe-click', '1')
         return { left, top, right, bottom, disabled }
       }
       return null
     })()`)
 
-  const stillClickable = (selector: string, text: string | undefined, point: { x: number; y: number }) =>
+  // 复核的是 locate 选中的那个元素，而不是第一个匹配项：前面可能有隐藏的同名按钮（如未打开的弹窗）
+  const stillClickable = (point: { x: number; y: number }) =>
     evaluate<boolean>(`(() => {
-      const el = [...document.querySelectorAll(${q(selector)})].find((item) => ${q(text ?? '')} === '' || (item.textContent ?? '').includes(${q(text ?? '')}))
+      const el = document.querySelector('[data-mxe-click]')
       if (!el) return false
       const style = getComputedStyle(el)
       const r = el.getBoundingClientRect()
@@ -92,7 +96,7 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
       }
       const point = human.point(box)
       try {
-        await human.click(point, await viewport(), () => stillClickable(selector, text, point))
+        await human.click(point, await viewport(), () => stillClickable(point))
         return
       } catch (error) {
         if (!(error instanceof ClickRejectedError)) throw error

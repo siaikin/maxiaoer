@@ -84,7 +84,7 @@ export async function loginWithBrowser(platform: PlatformId): Promise<Account | 
       if (checking || stopped) return
       checking = true
       try {
-        const profile = await host.withBrowser(id, (ctx) => adapter.checkLogin(ctx), { show: false, key: `login:${id}:${Date.now()}` })
+        const profile = await host.withBrowser(id, (ctx) => adapter.checkLogin(ctx), { show: false, background: true, key: `login:${id}:${Date.now()}` })
         if (!profile || stopped) return
         const store = getStore()
         const duplicate = profile.uid && store.data.accounts.find((item) => item.platform === platform && item.uid === profile.uid)
@@ -138,7 +138,7 @@ export async function relogin(id: string): Promise<Account | null> {
     if (checking || stopped) return
     checking = true
     try {
-      const profile = await host.withBrowser(id, (ctx) => adapter.checkLogin(ctx), { show: false, key: `relogin:${id}:${Date.now()}` })
+      const profile = await host.withBrowser(id, (ctx) => adapter.checkLogin(ctx), { show: false, background: true, key: `relogin:${id}:${Date.now()}` })
       if (!profile || stopped) return
       try {
         Object.assign(account, mergeRelogin(account, profile))

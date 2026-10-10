@@ -40,12 +40,14 @@ const pages: Record<string, string> = {
     `<button id="go" style="position:absolute;left:-240px;top:80px" onclick="document.body.dataset.hit='1'">点我</button>
      <script>setTimeout(() => { document.getElementById('go').style.left = '80px' }, 400)</script>`,
   ),
+  '/dup': page('dup', '<div style="display:none"><button class="go">发表</button></div><button class="go" onclick="document.body.dataset.hit=\'1\'">发表</button>'),
   '/upload': page('upload', '<input id="file" type="file">'),
   '/fetch': page('fetch', `<button id="go">请求</button><script>document.getElementById('go').onclick = () => fetch('/api/echo')</script>`),
   '/fp': page('fp', '<button id="pop" onclick="window.open(location.href)">弹窗</button>'),
 }
 
-describe.skipIf(!binary)('本地指纹浏览器', () => {
+// 会在屏幕上打开真实的浏览器窗口，默认跳过；需要时用 MXE_LIVE=1 pnpm test
+describe.skipIf(!binary || process.env.MXE_LIVE !== '1')('本地指纹浏览器', () => {
   let server: Server
   let origin = ''
   const root = mkdtempSync(join(tmpdir(), 'mxe-live-'))
@@ -98,7 +100,7 @@ describe.skipIf(!binary)('本地指纹浏览器', () => {
     await form.release()
   }, 60_000)
 
-  it('滚动嵌套容器，避开遮挡，并跟上移动后的按钮', async () => {
+  it('滚动嵌套容器，避开遮挡，并跟上移动后的按钮，跳过隐藏的同名按钮', async () => {
     const view = await tab('layout', 'manual', true)
     await view.ctx.goto(`${origin}/scroll`)
     const before = await view.ctx.evaluate<number>(`document.querySelector('#box').scrollTop`)
@@ -106,6 +108,9 @@ describe.skipIf(!binary)('本地指纹浏览器', () => {
     expect(await view.ctx.evaluate<number>(`document.querySelector('#box').scrollTop`)).toBeGreaterThan(before)
     await view.ctx.goto(`${origin}/move`)
     await view.ctx.click('#go')
+    expect(await view.ctx.evaluate<string>(`document.body.dataset.hit`)).toBe('1')
+    await view.ctx.goto(`${origin}/dup`)
+    await view.ctx.click('.go', '发表')
     expect(await view.ctx.evaluate<string>(`document.body.dataset.hit`)).toBe('1')
     await view.ctx.goto(`${origin}/cover`)
     await expect(view.ctx.click('#go')).rejects.toThrow(/遮挡|找不到可点击/)

@@ -58,7 +58,7 @@ pnpm install
 pnpm browser:prepare   # 为本机准备指纹内核，只在打包或首次开发前需要
 pnpm dev               # 启动桌面端
 pnpm typecheck
-pnpm test
+pnpm test              # 真实浏览器的集成测试会弹出窗口，默认跳过；要跑时加 MXE_LIVE=1
 pnpm build
 pnpm package           # 先准备内核，再打安装包
 ```
