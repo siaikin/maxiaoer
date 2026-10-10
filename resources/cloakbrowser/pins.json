@@ -1,0 +1,20 @@
+{
+  "channel": "https://github.com/CloakHQ/CloakBrowser/releases",
+  "platforms": {
+    "darwin-arm64": {
+      "version": "145.0.7632.109.2",
+      "archive": "cloakbrowser-darwin-arm64.tar.gz",
+      "sha256": "505582aa1bd3971c577f70e0cbbe016431702bdb693529abfd943b5bd9120c1c"
+    },
+    "windows-x64": {
+      "version": "146.0.7680.177.5",
+      "archive": "cloakbrowser-windows-x64.zip",
+      "sha256": "b213795cb32c3169f766c74ce1d0275fc89d3df256de39c04da7fb4c23b7fdbe"
+    },
+    "linux-x64": {
+      "version": "146.0.7680.177.5",
+      "archive": "cloakbrowser-linux-x64.tar.gz",
+      "sha256": "4a12bcde95fa1bb1beef2b41ab5e5c27c36be78e3be3d0dac8c64d705216670e"
+    }
+  }
+}

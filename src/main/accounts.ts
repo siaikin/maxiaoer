@@ -1,73 +1,178 @@
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow, session } from 'electron'
+import { rmSync } from 'node:fs'
+import { session } from 'electron'
 import type { Account, Collection, PlatformId } from '../shared/types'
-import { createBrowserContext, partitionFor, withBrowser } from './browser'
+import { sleep } from './anti-detection/human'
+import { browserHost, partitionFor } from './browser'
+import { isNetworkError } from './browser/net'
+import { IdentityMismatchError, IdentityUnconfirmedError, mergeRelogin } from './browser/relogin'
 import { getAdapter } from './platforms'
+import type { AccountProfile, BrowserContext } from './platforms/types'
 import { getStore } from './store'
 
 export function findAccount(id: string) {
-  const account = getStore().data.accounts.find((a) => a.id === id)
+  const account = getStore().data.accounts.find((item) => item.id === id)
   if (!account) throw new Error('账号不存在')
   return account
 }
 
+async function removeProfile(id: string) {
+  const dir = browserHost().profileDir(id)
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+      return
+    } catch {
+      await sleep(200)
+    }
+  }
+}
+
+/** 导入过旧 Cookie 后，第一次自动化先确认登录。网络失败保留标记，下次再查。 */
+export async function confirmSession(account: Account, ctx: BrowserContext) {
+  const host = browserHost()
+  if (!host.needsVerify(account.id)) return
+  let profile: AccountProfile | null
+  try {
+    profile = await getAdapter(account.platform).checkLogin(ctx)
+  } catch (error) {
+    if (isNetworkError(error)) throw new Error('网络错误，暂时无法确认登录状态')
+    throw error
+  }
+  host.clearVerify(account.id)
+  if (!profile) {
+    Object.assign(account, { status: 'expired', checkedAt: Date.now() })
+    getStore().save()
+    throw new Error('需要重新登录')
+  }
+  Object.assign(account, profile, { status: 'active', checkedAt: Date.now() })
+  getStore().save()
+}
+
+async function cleanupLogin(id: string, account: Account | null) {
+  await browserHost().closeAccount(id).catch(() => undefined)
+  if (!account) {
+    await removeProfile(id)
+    await session.fromPartition(partitionFor(id)).clearStorageData().catch(() => undefined)
+  }
+  return account
+}
+
 /**
- * 打开独立分区的登录窗口，用户扫码 / 输入密码；
- * 每次跳转和每 5 秒在同一分区里用隐藏窗口检测登录态，成功即保存。
+ * 打开这个账号自己的指纹浏览器。用户扫码或输入密码；
+ * 探测在另一个标签页进行，不打断登录页。
  */
 export async function loginWithBrowser(platform: PlatformId): Promise<Account | null> {
   const adapter = getAdapter(platform)
   const id = randomUUID()
-  const win = new BrowserWindow({ width: 1100, height: 800, title: `登录${adapter.name}`, webPreferences: { partition: partitionFor(id) } })
-  await win.loadURL(adapter.loginUrl)
-
-  return new Promise((resolve) => {
+  const host = browserHost()
+  try {
+    let stopped = false
     let checking = false
-    let done = false
-    const finish = (account: Account | null) => {
-      if (done) return
-      done = true
-      clearInterval(timer)
-      if (!win.isDestroyed()) win.destroy()
-      if (!account) void session.fromPartition(partitionFor(id)).clearStorageData()
-      resolve(account)
+    let timer: ReturnType<typeof setInterval> | undefined
+    let finishLogin!: (account: Account | null) => void
+    const result = new Promise<Account | null>((resolve) => {
+      finishLogin = resolve
+    })
+    const done = (account: Account | null) => {
+      if (stopped) return
+      stopped = true
+      if (timer) clearInterval(timer)
+      void cleanupLogin(id, account).then(finishLogin)
     }
     const check = async () => {
-      if (checking || done) return
+      if (checking || stopped) return
       checking = true
-      const probe = await createBrowserContext(id)
       try {
-        const profile = await adapter.checkLogin(probe.ctx)
-        if (!profile) return
+        const profile = await host.withBrowser(id, (ctx) => adapter.checkLogin(ctx), { show: false, key: `login:${id}:${Date.now()}` })
+        if (!profile || stopped) return
         const store = getStore()
-        const dup = profile.uid && store.data.accounts.find((a) => a.platform === platform && a.uid === profile.uid)
-        if (dup) {
-          // 同一账号重复登录：更新原账号资料，丢弃新分区
-          Object.assign(dup, profile, { status: 'active', checkedAt: Date.now() })
+        const duplicate = profile.uid && store.data.accounts.find((item) => item.platform === platform && item.uid === profile.uid)
+        if (duplicate) {
+          Object.assign(duplicate, profile, { status: 'active', checkedAt: Date.now() })
           store.save()
-          finish(null)
+          done(null)
           return
         }
         const account: Account = { id, platform, ...profile, status: 'active', createdAt: Date.now(), checkedAt: Date.now() }
         store.data.accounts.push(account)
         store.save()
-        finish(account)
+        host.clearVerify(id)
+        done(account)
       } catch {
         // 还在登录流程中
       } finally {
-        probe.dispose()
         checking = false
       }
     }
-    win.webContents.on('did-navigate', () => void check())
-    const timer = setInterval(() => void check(), 5000)
-    win.on('closed', () => finish(null))
+    const manual = await host.openManual(id, adapter.loginUrl, { onNavigate: () => void check() })
+    timer = setInterval(() => void check(), 5_000)
+    void manual.whenClosed.then(() => done(null))
+    return await result
+  } catch (error) {
+    await cleanupLogin(id, null)
+    throw error
+  }
+}
+
+export async function relogin(id: string): Promise<Account | null> {
+  const account = findAccount(id)
+  const adapter = getAdapter(account.platform)
+  const host = browserHost()
+  let stopped = false
+  let checking = false
+  let timer: ReturnType<typeof setInterval> | undefined
+  let finishLogin!: (result: Account | null) => void
+  let failLogin!: (error: Error) => void
+  const result = new Promise<Account | null>((resolve, reject) => {
+    finishLogin = resolve
+    failLogin = reject
   })
+  const done = (value: Account | null, error?: Error) => {
+    if (stopped) return
+    stopped = true
+    if (timer) clearInterval(timer)
+    void host.closeAccount(id).catch(() => undefined).then(() => (error ? failLogin(error) : finishLogin(value)))
+  }
+  const check = async () => {
+    if (checking || stopped) return
+    checking = true
+    try {
+      const profile = await host.withBrowser(id, (ctx) => adapter.checkLogin(ctx), { show: false, key: `relogin:${id}:${Date.now()}` })
+      if (!profile || stopped) return
+      try {
+        Object.assign(account, mergeRelogin(account, profile))
+      } catch (error) {
+        if (error instanceof IdentityUnconfirmedError) return
+        if (error instanceof IdentityMismatchError) await host.clearCookies(id).catch(() => undefined)
+        done(null, error instanceof Error ? error : new Error(String(error)))
+        return
+      }
+      getStore().save()
+      host.clearVerify(id)
+      done(account)
+    } catch (error) {
+      if (!isNetworkError(error)) return
+    } finally {
+      checking = false
+    }
+  }
+  const manual = await host.openManual(id, adapter.loginUrl, { onNavigate: () => void check() })
+  timer = setInterval(() => void check(), 5_000)
+  void manual.whenClosed.then(() => done(null))
+  return await result
 }
 
 export async function checkAccount(id: string): Promise<Account> {
   const account = findAccount(id)
-  const profile = await withBrowser(id, (ctx) => getAdapter(account.platform).checkLogin(ctx))
+  let profile: AccountProfile | null
+  try {
+    profile = await browserHost().withBrowser(id, (ctx) => getAdapter(account.platform).checkLogin(ctx))
+  } catch (error) {
+    if (isNetworkError(error)) throw new Error('网络错误，暂时无法确认登录状态')
+    throw error
+  }
+  browserHost().clearVerify(id)
   Object.assign(account, profile ?? {}, { status: profile ? 'active' : 'expired', checkedAt: Date.now() })
   getStore().save()
   return account
@@ -75,17 +180,18 @@ export async function checkAccount(id: string): Promise<Account> {
 
 export async function openAccount(id: string) {
   const account = findAccount(id)
-  const win = new BrowserWindow({ width: 1280, height: 860, webPreferences: { partition: partitionFor(id) } })
-  await win.loadURL(getAdapter(account.platform).homeUrl)
+  await browserHost().openManual(id, getAdapter(account.platform).homeUrl)
 }
 
 export async function removeAccount(id: string) {
+  await browserHost().closeAccount(id)
   const store = getStore()
-  store.data.accounts = store.data.accounts.filter((a) => a.id !== id)
+  store.data.accounts = store.data.accounts.filter((item) => item.id !== id)
   delete store.data.lastSettings[id]
   delete store.data.useLast[id]
   delete store.data.collections[id]
   store.save()
+  await removeProfile(id)
   await session.fromPartition(partitionFor(id)).clearStorageData()
 }
 
@@ -99,11 +205,14 @@ export async function listCollections(id: string, keyword: string, refresh = fal
   const store = getStore()
   const cached = store.data.collections[id]
   if (refresh || !cached || Date.now() - cached.fetchedAt > COLLECTION_TTL) {
-    const items = await withBrowser(id, (ctx) => adapter.listCollections!(ctx))
+    const items = await browserHost().withBrowser(id, async (ctx) => {
+      await confirmSession(account, ctx)
+      return adapter.listCollections!(ctx)
+    })
     store.data.collections[id] = { items, fetchedAt: Date.now() }
     store.save()
   }
   const kw = keyword.trim().toLowerCase()
   const items = store.data.collections[id].items
-  return kw ? items.filter((c) => c.name.toLowerCase().includes(kw)) : items
+  return kw ? items.filter((item) => item.name.toLowerCase().includes(kw)) : items
 }

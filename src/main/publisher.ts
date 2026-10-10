@@ -3,7 +3,9 @@ import { app, BrowserWindow } from 'electron'
 import type { Post, PublishJob, PublishTask } from '../shared/types'
 import { defaultSettings } from '../shared/types'
 import { validatePost } from '../shared/validate'
-import { withBrowser } from './browser'
+import { beginTask } from './browser/queue'
+import { confirmSession } from './accounts'
+import { browserHost } from './browser'
 import { getAdapter } from './platforms'
 import { getStore } from './store'
 
@@ -50,7 +52,9 @@ export function startPublish(post: Post, accountIds: string[], scheduledAt?: num
   return job
 }
 
-/** 不同账号并行，各自一个窗口 */
+const inflight = new Map<string, Promise<unknown>>()
+
+/** 不同账号最多同时两个；同一个账号串行。已经入队的调度和重试直接复用。 */
 export async function runJob(jobId: string) {
   const job = getStore().data.jobs.find((j) => j.id === jobId)
   if (!job) return
@@ -59,11 +63,18 @@ export async function runJob(jobId: string) {
 
 export async function retryTask(jobId: string, taskId: string) {
   const { job, task } = findTask(jobId, taskId)
-  Object.assign(task, { status: 'pending', error: undefined, progress: undefined })
-  await runTask(job, task)
+  await beginTask(inflight, task.id, () => {
+    Object.assign(task, { status: 'pending', error: undefined, progress: undefined })
+    getStore().save()
+    broadcast(job)
+  }, () => runTaskBody(job, task))
 }
 
-async function runTask(job: PublishJob, task: PublishTask) {
+function runTask(job: PublishJob, task: PublishTask) {
+  return beginTask(inflight, task.id, () => undefined, () => runTaskBody(job, task))
+}
+
+async function runTaskBody(job: PublishJob, task: PublishTask) {
   const store = getStore()
   const update = updater(job, task)
   const post = store.data.posts.find((p) => p.id === job.postId)
@@ -74,15 +85,15 @@ async function runTask(job: PublishJob, task: PublishTask) {
   const errors = validatePost(post, adapter.limits)
   if (errors.length) return update({ status: 'failed', error: errors.join('；') })
 
-  update({ status: 'running', startedAt: Date.now(), progress: '准备中', error: undefined })
   // 开发时 MXE_DRY_RUN=1：表单填好后不提交，窗口保留
   const dryRun = !app.isPackaged && process.env.MXE_DRY_RUN === '1'
   try {
-    // 后台运行，不打扰用户；需要扫码时适配器会把窗口显示出来（不抢焦点）。试运行时显示，方便检查表单
-    const result = await withBrowser(
+    // 有界面但先最小化；需要扫码时适配器恢复同一窗口。试运行时直接显示填好的页面
+    const result = await browserHost().withBrowser(
       account.id,
-      (ctx) =>
-        adapter.publish(
+      async (ctx) => {
+        await confirmSession(account, ctx)
+        return adapter.publish(
           ctx,
           {
             title: post.title,
@@ -93,8 +104,15 @@ async function runTask(job: PublishJob, task: PublishTask) {
             dryRun,
           },
           (progress) => update({ progress }),
-        ),
-      { show: dryRun, keepOpen: dryRun },
+        )
+      },
+      {
+        show: dryRun,
+        keepOpen: dryRun,
+        key: task.id,
+        onWait: (progress) => update({ progress }),
+        onStart: () => update({ status: 'running', startedAt: Date.now(), progress: '准备中', error: undefined }),
+      },
     )
     if (dryRun) return update({ status: 'failed', error: '试运行：表单已填好，没有提交', progress: undefined, finishedAt: Date.now() })
     update({ status: 'success', ...result, progress: undefined, finishedAt: Date.now() })
@@ -109,15 +127,28 @@ export async function deleteRemote(jobId: string, taskId: string) {
   const adapter = getAdapter(task.platform)
   if (!adapter.deleteRemote) throw new Error(`${adapter.name} 暂不支持自动删除，请到平台后台手动删除`)
   if (task.status !== 'success') throw new Error('只有发布成功的作品可以删除')
+  const account = getStore().data.accounts.find((item) => item.id === task.accountId)
   const update = updater(job, task)
-  update({ status: 'deleting', error: undefined })
-  try {
-    await withBrowser(task.accountId, (ctx) => adapter.deleteRemote!(ctx, { remoteId: task.remoteId, url: task.url }))
-    update({ status: 'deleted', finishedAt: Date.now() })
-  } catch (e) {
-    update({ status: 'success', error: `删除失败：${e instanceof Error ? e.message : String(e)}` })
-    throw e
-  }
+  await beginTask(inflight, `delete:${task.id}`, () => update({ status: 'deleting', error: undefined }), async () => {
+    try {
+      await browserHost().withBrowser(
+        task.accountId,
+        async (ctx) => {
+          if (account) await confirmSession(account, ctx)
+          await adapter.deleteRemote!(ctx, { remoteId: task.remoteId, url: task.url })
+        },
+        {
+          key: `delete:${task.id}`,
+          onWait: (progress) => update({ progress }),
+          onStart: () => update({ status: 'deleting', progress: '准备中', error: undefined }),
+        },
+      )
+      update({ status: 'deleted', progress: undefined, finishedAt: Date.now() })
+    } catch (e) {
+      update({ status: 'success', error: `删除失败：${e instanceof Error ? e.message : String(e)}`, progress: undefined })
+      throw e
+    }
+  })
 }
 
 export function removeJob(jobId: string) {

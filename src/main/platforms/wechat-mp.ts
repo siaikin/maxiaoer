@@ -3,8 +3,9 @@ import { pageFetchForm, until } from './util'
 
 /**
  * 微信公众号「图片消息」（贴图）。
- * 先用公众号后台自己的接口上传图片、创建图文草稿，再打开编辑页点“发表”。
- * 接口参数参考 leaperone/MultiPost-Extension（Apache-2.0）的 src/sync/dynamic/weixin.ts。
+ * 图片上传和创建草稿走公众号后台接口；删除菜单里有两处必须用 DOM click。
+ * 这两处都不属于鼠标行为模拟，模块也不会在失败后自动重放发表或删除。
+ * 选择器和接口参数参考 leaperone/MultiPost-Extension（Apache-2.0）的 src/sync/dynamic/weixin.ts。
  */
 interface MpInfo {
   token: string
@@ -130,7 +131,7 @@ export const wechatMp: PlatformAdapter = {
     // 操作按钮只在悬停时出现：「更多」菜单里的删除，再在确认气泡里点确定
     await ctx.hover(block)
     await ctx.hover(`${block} .more_icon`)
-    // 菜单在 mousedown 时就会重新渲染，真实鼠标点不中，这里用 DOM click
+    // 菜单在 mousedown 时就会重新渲染，真实鼠标点不中。这里的 DOM click 不属于鼠标行为模拟。
     await until(
       ctx,
       () =>
@@ -143,7 +144,7 @@ export const wechatMp: PlatformAdapter = {
       '没找到「删除」菜单',
     )
     await ctx.sleep(1000)
-    // 确认是记录旁边的气泡，被图片层盖住，同样用 DOM click
+    // 确认气泡被图片层盖住，同样用 DOM click，不走鼠标行为模拟
     await ctx.evaluate(`[...document.querySelectorAll('.weui-desktop-popover__bar button.weui-desktop-btn_primary')].find((b) => b.offsetWidth && b.textContent.trim() === '确定')?.click()`)
     // 删除已发表内容要管理员微信扫码验证，最多等 3 分钟
     await until(
@@ -162,7 +163,7 @@ export const wechatMp: PlatformAdapter = {
 /** 弹出「扫码验证」时把后台窗口显示出来，等管理员扫码 */
 async function revealQrCode(ctx: BrowserContext) {
   const asking = await ctx.evaluate<boolean>(`[...document.querySelectorAll('.weui-desktop-dialog')].some((d) => d.offsetWidth && d.textContent.includes('扫码验证'))`)
-  if (asking) ctx.reveal()
+  if (asking) await ctx.reveal()
 }
 
 const publishListUrl = (token: string) => `https://mp.weixin.qq.com/cgi-bin/appmsgpublish?sub=list&begin=0&count=10&token=${token}&lang=zh_CN`

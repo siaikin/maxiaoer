@@ -2,7 +2,7 @@
 export const PLATFORM_IDS = ['xiaohongshu', 'weibo', 'wechat-mp', 'x', 'facebook'] as const
 export type PlatformId = (typeof PLATFORM_IDS)[number]
 
-/** 账号：一个平台上的一个登录身份，对应一个独立的持久化浏览器分区 */
+/** 账号：一个平台上的一个登录身份，对应一份独立的指纹浏览器资料 */
 export interface Account {
   id: string
   platform: PlatformId

@@ -8,3 +8,5 @@ release/
 !.env.example
 src/renderer/auto-imports.d.ts
 src/renderer/components.d.ts
+resources/cloakbrowser/bundled/
+resources/cloakbrowser/cache/

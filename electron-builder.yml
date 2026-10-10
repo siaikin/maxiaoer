@@ -10,3 +10,6 @@ win:
   target: nsis
 linux:
   target: AppImage
+extraResources:
+  - from: resources/cloakbrowser/bundled
+    to: cloakbrowser
