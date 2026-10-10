@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import type { Account, PlatformId, PlatformInfo, PublishJob } from '../../../shared/types'
+import { toLocalFileUrl } from '../../../shared/localFile'
 
 // 全局状态：模块级单例，所有页面共用
 const platforms = ref<PlatformInfo[]>([])
@@ -8,7 +9,7 @@ const jobs = ref<PublishJob[]>([])
 const commonTopics = ref<string[]>([])
 let loaded: Promise<void> | undefined
 
-export const localFileUrl = (path: string) => `local-file://${encodeURI(path)}`
+export const localFileUrl = toLocalFileUrl
 
 export function useAppState() {
   loaded ??= (async () => {

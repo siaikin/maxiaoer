@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, net, protocol, shell } from 'electron'
+import { fromLocalFileUrl } from '../shared/localFile'
 import { registerIpc } from './ipc'
 import { startScheduler } from './publisher'
 
@@ -31,7 +32,7 @@ function createMainWindow() {
 }
 
 app.whenReady().then(() => {
-  protocol.handle('local-file', (req) => net.fetch(pathToFileURL(decodeURIComponent(new URL(req.url).pathname)).toString()))
+  protocol.handle('local-file', (req) => net.fetch(pathToFileURL(fromLocalFileUrl(req.url)).toString()))
   registerIpc()
   startScheduler()
   createMainWindow()
