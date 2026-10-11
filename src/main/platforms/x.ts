@@ -11,7 +11,8 @@ export const x: PlatformAdapter = {
   color: '#000000',
   loginUrl: 'https://x.com/i/flow/login',
   homeUrl: 'https://x.com/home',
-  limits: { contentMax: 280, minImages: 0, maxImages: 4, requiresTitle: false },
+  // 网页版超过 5MB 的图片会被静默丢掉
+  limits: { contentMax: 280, minImages: 0, maxImages: 4, maxImageBytes: 5_000_000, requiresTitle: false },
   settings: [
     {
       key: 'replies',

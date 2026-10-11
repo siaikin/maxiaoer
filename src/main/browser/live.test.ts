@@ -41,6 +41,7 @@ const pages: Record<string, string> = {
      <script>setTimeout(() => { document.getElementById('go').style.left = '80px' }, 400)</script>`,
   ),
   '/dup': page('dup', '<div style="display:none"><button class="go">发表</button></div><button class="go" onclick="document.body.dataset.hit=\'1\'">发表</button>'),
+  '/inner': page('inner', '<button id="send" onclick="document.body.dataset.hit=\'1\'"><span class="label" style="pointer-events:none">发送</span></button>'),
   '/upload': page('upload', '<input id="file" type="file">'),
   '/fetch': page('fetch', `<button id="go">请求</button><script>document.getElementById('go').onclick = () => fetch('/api/echo')</script>`),
   '/fp': page('fp', '<button id="pop" onclick="window.open(location.href)">弹窗</button>'),
@@ -94,6 +95,13 @@ describe.skipIf(!binary || process.env.MXE_LIVE !== '1')('本地指纹浏览器'
     await form.ctx.type('#editor', '第一行\n第二行')
     expect(await form.ctx.evaluate<string>(`document.querySelector('#editor').innerText`)).toContain('第一行')
     expect(await form.ctx.evaluate<string>(`document.querySelector('#editor').innerText`)).toContain('第二行')
+    // 再次输入先清空，不追加
+    await form.ctx.type('#editor', '新内容')
+    expect((await form.ctx.evaluate<string>(`document.querySelector('#editor').innerText`)).trim()).toBe('新内容')
+    await form.ctx.goto(`${origin}/form`)
+    await form.ctx.evaluate(`document.querySelector('#name').value = '旧草稿'`)
+    await form.ctx.type('#name', '新标题')
+    expect(await form.ctx.evaluate<string>(`document.querySelector('#name').value`)).toBe('新标题')
     await form.ctx.goto(`${origin}/shadow`)
     await form.ctx.clickInShadow('#host', '发布')
     expect(await form.ctx.evaluate<string>(`document.body.dataset.hit`)).toBe('1')
@@ -118,6 +126,14 @@ describe.skipIf(!binary || process.env.MXE_LIVE !== '1')('本地指纹浏览器'
     await view.release()
   }, 40_000)
 
+  it('点击 pointer-events: none 的按钮文字时点外层按钮', async () => {
+    const view = await tab('inner', 'auto', false)
+    await view.ctx.goto(`${origin}/inner`)
+    await view.ctx.click('span.label', '发送')
+    expect(await view.ctx.evaluate<string>(`document.body.dataset.hit`)).toBe('1')
+    await view.release()
+  }, 30_000)
+
   it('上传文件并捕获接口响应', async () => {
     const work = await tab('files', 'manual', true)
     const file = join(root, 'picture.png')
@@ -135,21 +151,25 @@ describe.skipIf(!binary || process.env.MXE_LIVE !== '1')('本地指纹浏览器'
     await expect(closing).rejects.toThrow('页面已关闭')
   }, 30_000)
 
-  it('最小化后能恢复同一窗口', async () => {
+  it('后台窗口在屏幕外照常渲染，能恢复到屏幕内', async () => {
     const auto = await tab('window', 'auto', false)
     await auto.ctx.goto(`${origin}/form`)
-    const state = async (current: TabSession) => {
+    const bounds = async (current: TabSession) => {
       const cdp = await current.page.createCDPSession()
       try {
-        const result = await cdp.send<{ bounds?: { windowState?: string } }>('Browser.getWindowForTarget')
-        return result.bounds?.windowState
+        const { windowId } = await cdp.send<{ windowId: number }>('Browser.getWindowForTarget')
+        const result = await cdp.send<{ bounds: { left: number; windowState: string } }>('Browser.getWindowBounds', { windowId })
+        return result.bounds
       } finally {
         await cdp.detach().catch(() => undefined)
       }
     }
-    await expect.poll(() => state(auto), { timeout: 5_000 }).toBe('minimized')
+    expect((await bounds(auto)).left).toBeLessThan(0)
+    // 最小化的页面是 hidden，不出帧；屏幕外的必须仍是 visible，动画帧照常回调
+    expect(await auto.ctx.evaluate<string>('document.visibilityState')).toBe('visible')
+    expect(await auto.ctx.evaluate<boolean>('new Promise((r) => { requestAnimationFrame(() => r(true)); setTimeout(() => r(false), 2000) })')).toBe(true)
     await auto.ctx.reveal()
-    await expect.poll(() => state(auto), { timeout: 5_000 }).toBe('normal')
+    await expect.poll(async () => (await bounds(auto)).left, { timeout: 5_000 }).toBeGreaterThanOrEqual(0)
     await auto.release()
   }, 20_000)
 

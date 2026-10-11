@@ -35,7 +35,11 @@ interface CloakProcess {
 export interface CloakBrowser {
   connected: boolean
   pages(): Promise<CloakPage[]>
-  newPage(options?: { background?: boolean }): Promise<CloakPage>
+  newPage(options?: {
+    background?: boolean
+    type?: 'tab' | 'window'
+    windowBounds?: { left?: number; top?: number; width?: number; height?: number }
+  }): Promise<CloakPage>
   close(): Promise<void>
   on(event: 'disconnected', handler: () => void): void
   process(): CloakProcess | null
@@ -64,7 +68,20 @@ export function automationArgs(seed: number) {
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
     '--disable-features=CalculateNativeWinOcclusion',
+    // 启动时不开窗口：macOS 上首个窗口会把内核切到前台抢走键盘焦点，窗口改由 newWindow 在后台创建
+    '--no-startup-window',
   ]
+}
+
+const WINDOW = { width: 1280, height: 900 }
+
+/** 新开一个窗口。不可见的建在屏幕外且不激活；最小化的窗口页面会变成 hidden、停止出帧，不能用 */
+function newWindow(browser: CloakBrowser, visible: boolean) {
+  return browser.newPage({
+    type: 'window',
+    background: !visible,
+    windowBounds: visible ? { left: 80, top: 60, ...WINDOW } : { left: -20000, top: -20000, ...WINDOW },
+  })
 }
 
 function profileReady(dir: string) {
@@ -90,7 +107,7 @@ async function defaultLaunch(config: LaunchConfig): Promise<CloakBrowser> {
       userDataDir: config.userDataDir,
       args: config.args,
       // 走管道而不是本机调试端口：带登录态的浏览器不对本机其他进程开放 CDP
-      launchOptions: { pipe: true },
+      launchOptions: { pipe: true, waitForInitialPage: false },
     })) as unknown as CloakBrowser
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -159,7 +176,7 @@ export function createBrowserHost(deps: HostDeps) {
       throw new Error('账号已删除')
     }
     if (cookies.length) {
-      const page = (await browser.pages())[0] ?? (await browser.newPage())
+      const page = await newWindow(browser, false)
       const cdp = await page.createCDPSession()
       try {
         await applyCookies(cookies, (method, params) => cdp.send(method, params))
@@ -198,11 +215,14 @@ export function createBrowserHost(deps: HostDeps) {
     return promise
   }
 
-  async function takePage(running: Running, background = false) {
+  async function takePage(running: Running, mode: 'tab' | 'offscreen' | 'visible') {
     const pages = await running.browser.pages()
     const blank = pages.find((page) => !running.tracked.has(page) && !page.isClosed() && (page.url() === 'about:blank' || page.url() === ''))
-    // 后台标签页不切走用户正在看的页面（比如登录时的二维码）
-    const page = blank ?? (await running.browser.newPage({ background }))
+    // 已有手动窗口时开后台标签页，不切走用户正在看的页面（比如登录时的二维码）；
+    // 否则开新窗口，后台任务的窗口直接建在屏幕外，不抢焦点
+    const page =
+      blank ??
+      (mode === 'tab' ? await running.browser.newPage({ background: true }) : await newWindow(running.browser, mode === 'visible'))
     running.tracked.add(page)
     page.on('close', () => {
       running.tracked.delete(page)
@@ -218,13 +238,15 @@ export function createBrowserHost(deps: HostDeps) {
     opts: { role: 'auto' | 'manual'; show?: boolean; background?: boolean; onNavigate?: () => void },
   ): Promise<TabSession> {
     const running = await ensure(id)
-    const page = await takePage(running, opts.background && running.manual.size > 0)
+    const visible = opts.role === 'manual' || !!opts.show
+    const mode = visible ? 'visible' : running.manual.size > 0 ? 'tab' : 'offscreen'
+    const page = await takePage(running, mode)
     const cdp = await page.createCDPSession()
     const ctx = await createPageContext(page, cdp)
     if (opts.role === 'manual') running.manual.add(page)
     else running.auto.add(page)
-    if (opts.role === 'manual' || opts.show) await ctx.setWindow('normal')
-    else if (running.manual.size === 0) await ctx.setWindow('minimized')
+    if (visible) await ctx.setWindow('normal')
+    else if (running.manual.size === 0) await ctx.setWindow('offscreen')
     if (opts.onNavigate) {
       page.on('framenavigated', (frame: { parentFrame?: () => unknown }) => {
         if (!frame.parentFrame?.()) opts.onNavigate?.()

@@ -7,6 +7,7 @@ import { validatePost } from '../shared/validate'
 import { beginTask } from './browser/queue'
 import { confirmSession } from './accounts'
 import { browserHost } from './browser'
+import { fitImages } from './images'
 import { getAdapter } from './platforms'
 import { getStore } from './store'
 
@@ -95,18 +96,21 @@ async function runTaskBody(job: PublishJob, task: PublishTask, force = false) {
 
   // 开发时 MXE_DRY_RUN=1：表单填好后不提交，窗口保留
   const dryRun = !app.isPackaged && process.env.MXE_DRY_RUN === '1'
+  let cleanup = () => Promise.resolve()
   try {
-    // 有界面但先最小化；需要扫码时适配器恢复同一窗口。试运行时直接显示填好的页面
+    // 有界面但在屏幕外；需要扫码时适配器把窗口移回来。试运行时直接显示填好的页面
     const result = await browserHost().withBrowser(
       account.id,
       async (ctx) => {
         await confirmSession(account, ctx)
+        const images = await fitImages(post.images.map((i) => i.path), adapter.limits.maxImageBytes)
+        cleanup = images.cleanup
         return adapter.publish(
           ctx,
           {
             title: post.title,
             content: post.content,
-            images: post.images.map((i) => i.path),
+            images: images.paths,
             topics: post.topics.slice(0, adapter.limits.maxTopics),
             settings: { ...defaultSettings(adapter.settings), ...post.settings[account.id] },
             dryRun,
@@ -126,6 +130,8 @@ async function runTaskBody(job: PublishJob, task: PublishTask, force = false) {
     update({ status: 'success', ...result, progress: undefined, finishedAt: Date.now() })
   } catch (e) {
     update({ status: 'failed', error: e instanceof Error ? e.message : String(e), progress: undefined, finishedAt: Date.now() })
+  } finally {
+    await cleanup().catch(() => undefined)
   }
 }
 
