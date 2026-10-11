@@ -5,13 +5,13 @@ import { useRoute } from 'vue-router'
 
 const route = useRoute()
 
-// 侧边导航参考蚁小二：首页 / 账号 / 发布 / 记录，加一个常用话题
+// 侧边导航参考蚁小二：首页 / 账号 / 发布 / 记录，加一个话题合集
 const items: NavigationMenuItem[] = [
   { label: '首页', icon: 'i-lucide-house', to: '/' },
   { label: '账号管理', icon: 'i-lucide-users', to: '/accounts' },
   { label: '发布图文', icon: 'i-lucide-square-pen', to: '/publish' },
   { label: '发布记录', icon: 'i-lucide-list-checks', to: '/records' },
-  { label: '常用话题', icon: 'i-lucide-hash', to: '/topics' },
+  { label: '话题合集', icon: 'i-lucide-layers', to: '/topics' },
 ]
 </script>
 

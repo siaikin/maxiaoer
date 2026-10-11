@@ -8,10 +8,10 @@ import { isNetworkError } from './browser/net'
 import { IdentityMismatchError, IdentityUnconfirmedError, mergeRelogin } from './browser/relogin'
 import { getAdapter } from './platforms'
 import type { AccountProfile, BrowserContext } from './platforms/types'
-import { getStore } from './store'
+import { getDb } from './store'
 
 export function findAccount(id: string) {
-  const account = getStore().data.accounts.find((item) => item.id === id)
+  const account = getDb().getAccount(id)
   if (!account) throw new Error('账号不存在')
   return account
 }
@@ -42,11 +42,11 @@ export async function confirmSession(account: Account, ctx: BrowserContext) {
   host.clearVerify(account.id)
   if (!profile) {
     Object.assign(account, { status: 'expired', checkedAt: Date.now() })
-    getStore().save()
+    getDb().saveAccount(account)
     throw new Error('需要重新登录')
   }
   Object.assign(account, profile, { status: 'active', checkedAt: Date.now() })
-  getStore().save()
+  getDb().saveAccount(account)
 }
 
 async function cleanupLogin(id: string, account: Account | null) {
@@ -86,17 +86,16 @@ export async function loginWithBrowser(platform: PlatformId): Promise<Account | 
       try {
         const profile = await host.withBrowser(id, (ctx) => adapter.checkLogin(ctx), { show: false, background: true, key: `login:${id}:${Date.now()}` })
         if (!profile || stopped) return
-        const store = getStore()
-        const duplicate = profile.uid && store.data.accounts.find((item) => item.platform === platform && item.uid === profile.uid)
+        const db = getDb()
+        const duplicate = profile.uid && db.listAccounts().find((item) => item.platform === platform && item.uid === profile.uid)
         if (duplicate) {
           Object.assign(duplicate, profile, { status: 'active', checkedAt: Date.now() })
-          store.save()
+          db.saveAccount(duplicate)
           done(null)
           return
         }
         const account: Account = { id, platform, ...profile, status: 'active', createdAt: Date.now(), checkedAt: Date.now() }
-        store.data.accounts.push(account)
-        store.save()
+        db.saveAccount(account)
         host.clearVerify(id)
         done(account)
       } catch {
@@ -148,7 +147,7 @@ export async function relogin(id: string): Promise<Account | null> {
         done(null, error instanceof Error ? error : new Error(String(error)))
         return
       }
-      getStore().save()
+      getDb().saveAccount(account)
       host.clearVerify(id)
       done(account)
     } catch (error) {
@@ -174,7 +173,7 @@ export async function checkAccount(id: string): Promise<Account> {
   }
   browserHost().clearVerify(id)
   Object.assign(account, profile ?? {}, { status: profile ? 'active' : 'expired', checkedAt: Date.now() })
-  getStore().save()
+  getDb().saveAccount(account)
   return account
 }
 
@@ -185,12 +184,7 @@ export async function openAccount(id: string) {
 
 export async function removeAccount(id: string) {
   await browserHost().closeAccount(id)
-  const store = getStore()
-  store.data.accounts = store.data.accounts.filter((item) => item.id !== id)
-  delete store.data.lastSettings[id]
-  delete store.data.useLast[id]
-  delete store.data.collections[id]
-  store.save()
+  getDb().removeAccount(id)
   await removeProfile(id)
   await session.fromPartition(partitionFor(id)).clearStorageData()
 }
@@ -202,17 +196,16 @@ export async function listCollections(id: string, keyword: string, refresh = fal
   const account = findAccount(id)
   const adapter = getAdapter(account.platform)
   if (!adapter.listCollections) return []
-  const store = getStore()
-  const cached = store.data.collections[id]
+  const db = getDb()
+  const cached = db.collections(id)
+  let items = cached?.items ?? []
   if (refresh || !cached || Date.now() - cached.fetchedAt > COLLECTION_TTL) {
-    const items = await browserHost().withBrowser(id, async (ctx) => {
+    items = await browserHost().withBrowser(id, async (ctx) => {
       await confirmSession(account, ctx)
       return adapter.listCollections!(ctx)
     })
-    store.data.collections[id] = { items, fetchedAt: Date.now() }
-    store.save()
+    db.setCollections(id, items)
   }
   const kw = keyword.trim().toLowerCase()
-  const items = store.data.collections[id].items
   return kw ? items.filter((item) => item.name.toLowerCase().includes(kw)) : items
 }

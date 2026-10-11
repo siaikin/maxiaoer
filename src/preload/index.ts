@@ -28,9 +28,13 @@ const api: MaxiaoerApi = {
       return () => ipcRenderer.off('publish:update', listener)
     },
   },
+  topicPresets: {
+    list: invoke('topicPresets:list'),
+    save: invoke('topicPresets:save'),
+    remove: invoke('topicPresets:remove'),
+    reorder: invoke('topicPresets:reorder'),
+  },
   prefs: {
-    commonTopics: invoke('prefs:commonTopics'),
-    setCommonTopics: invoke('prefs:setCommonTopics'),
     lastSettings: invoke('prefs:lastSettings'),
     useLast: invoke('prefs:useLast'),
     setUseLast: invoke('prefs:setUseLast'),

@@ -1,4 +1,4 @@
-import type { Account, Collection, PlatformId, PlatformInfo, Post, PublishJob, SettingValues } from './types'
+import type { Account, Collection, PlatformId, PlatformInfo, Post, PublishJob, SettingValues, TopicPreset } from './types'
 
 /** 主进程经 preload 暴露给渲染进程的 API */
 export interface MaxiaoerApi {
@@ -29,9 +29,15 @@ export interface MaxiaoerApi {
     removeJob(jobId: string): Promise<void>
     onUpdate(cb: (job: PublishJob) => void): () => void
   }
+  /** 话题合集：多组预设话题，发布时一键加入 */
+  topicPresets: {
+    list(): Promise<TopicPreset[]>
+    /** 新建或更新（按 id） */
+    save(preset: TopicPreset): Promise<void>
+    remove(id: string): Promise<void>
+    reorder(ids: string[]): Promise<void>
+  }
   prefs: {
-    commonTopics(): Promise<string[]>
-    setCommonTopics(topics: string[]): Promise<void>
     /** 每个账号上次用的发布配置 */
     lastSettings(): Promise<Record<string, SettingValues>>
     /** 每个账号是否启用“使用上次选择” */

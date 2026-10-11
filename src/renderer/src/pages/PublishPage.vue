@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { withLastSettings, type Account, type PlatformId, type Post, type SettingValues } from '../../../shared/types'
+import { commonLimits, platformLimits, resetOverride, setOverride } from '../../../shared/content'
+import { CONTENT_FIELDS, contentFor, withLastSettings, type Account, type ContentField, type PlatformId, type Post, type PostContent, type SettingValues } from '../../../shared/types'
 import { validatePost } from '../../../shared/validate'
 import AccountAvatar from '../components/AccountAvatar.vue'
 import AccountSettings from '../components/AccountSettings.vue'
-import TopicInput from '../components/TopicInput.vue'
-import { errorText, localFileUrl, plain, useAppState } from '../composables/useAppState'
+import ContentEditor from '../components/ContentEditor.vue'
+import { errorText, plain, useAppState } from '../composables/useAppState'
 
 const { platforms, platformMap, accounts } = useAppState()
 const toast = useToast()
@@ -18,6 +19,7 @@ const post = reactive<Post>({
   content: '',
   images: [],
   topics: [],
+  overrides: {},
   settings: {},
   createdAt: Date.now(),
   updatedAt: Date.now(),
@@ -63,26 +65,56 @@ function applyLast(a: Account) {
   post.settings[a.id] = initialSettings(a)
 }
 
-/** 按选中账号所在的平台校验 */
-const issues = computed(() => {
-  const ids = [...new Set(selectedAccounts.value.map((a) => a.platform))] as PlatformId[]
-  return ids.map((id) => ({ platform: platformMap.value[id], errors: validatePost(post, platformMap.value[id].limits) }))
-})
-const blocked = computed(() => !selected.value.length || issues.value.some((i) => i.errors.length) || (scheduled.value && !scheduledAt.value))
-const titleMax = computed(() => Math.min(...issues.value.map((i) => i.platform.limits.titleMax ?? Infinity), 64))
-const maxTopics = computed(() => Math.min(...issues.value.map((i) => i.platform.limits.maxTopics ?? Infinity), 30))
+/** 选中账号所在的平台，按平台列表顺序 */
+const selectedPlatforms = computed(() => platforms.value.filter((p) => selectedAccounts.value.some((a) => a.platform === p.id)))
 
-async function pickImages() {
-  const paths = await window.maxiaoer.posts.pickImages()
-  post.images.push(...paths.filter((p) => !post.images.some((i) => i.path === p)).map((path) => ({ path })))
+/** 按每个平台实际要发的内容（单独设置优先）校验 */
+const issues = computed(() =>
+  selectedPlatforms.value.map((p) => ({ platform: p, errors: validatePost(contentFor(post, p.id), p.limits) })),
+)
+const blocked = computed(() => !selected.value.length || issues.value.some((i) => i.errors.length) || (scheduled.value && !scheduledAt.value))
+
+// 内容编辑：“通用”页是所有平台共用的稿子，平台页沿用通用内容，改了哪项哪项就只对这个平台生效
+const tab = ref<'common' | PlatformId>('common')
+watch(selectedPlatforms, (list) => {
+  if (tab.value !== 'common' && !list.some((p) => p.id === tab.value)) tab.value = 'common'
+})
+const tabs = computed(() => [
+  { label: '通用', value: 'common', icon: 'i-lucide-files' },
+  ...issues.value.map(({ platform, errors }) => ({
+    label: platform.name,
+    value: platform.id,
+    badge: errors.length
+      ? { label: String(errors.length), color: 'error' as const, variant: 'solid' as const }
+      : post.overrides[platform.id]
+        ? { label: '单独', color: 'primary' as const, variant: 'subtle' as const }
+        : undefined,
+  })),
+])
+const editing = computed<PostContent>(() => (tab.value === 'common' ? post : contentFor(post, tab.value)))
+const editingLimits = computed(() =>
+  tab.value === 'common' ? commonLimits(post, selectedPlatforms.value) : platformLimits(platformMap.value[tab.value].limits),
+)
+const overridden = computed(() => {
+  if (tab.value === 'common') return undefined
+  const o = post.overrides[tab.value] ?? {}
+  return Object.fromEntries(CONTENT_FIELDS.map((f) => [f, o[f] !== undefined])) as Record<ContentField, boolean>
+})
+function updateField(field: ContentField, value: PostContent[ContentField]) {
+  if (tab.value === 'common') (post as PostContent)[field] = value as never
+  else setOverride(post, tab.value, field, value)
+}
+function resetField(field: ContentField) {
+  if (tab.value !== 'common') resetOverride(post, tab.value, field)
 }
 
 async function publish() {
   publishing.value = true
   try {
     const payload = plain({ ...post, updatedAt: Date.now() })
-    // 只保留选中账号的配置
+    // 只保留选中账号的配置和选中平台的单独设置
     payload.settings = Object.fromEntries(selected.value.map((id) => [id, payload.settings[id]]))
+    payload.overrides = Object.fromEntries(selectedPlatforms.value.filter((p) => payload.overrides[p.id]).map((p) => [p.id, payload.overrides[p.id]]))
     await window.maxiaoer.publish.start(payload, [...selected.value], scheduled.value ? new Date(scheduledAt.value).getTime() : undefined)
     toast.add({ title: scheduled.value ? '已加入定时发布' : '已开始发布', color: 'success', icon: 'i-lucide-check' })
     void router.push('/records')
@@ -96,48 +128,17 @@ async function publish() {
 
 <template>
   <div class="grid grid-cols-[1fr_400px] gap-4 items-start">
-    <UCard :ui="{ body: 'space-y-5' }">
-      <UFormField label="图片" :help="`已选 ${post.images.length} 张，第一张为封面`">
-        <div class="flex flex-wrap gap-2">
-          <div v-for="(img, i) in post.images" :key="img.path" class="relative group">
-            <img :src="localFileUrl(img.path)" class="size-24 rounded-md object-cover ring ring-default" />
-            <UBadge v-if="i === 0" label="封面" size="sm" class="absolute left-1 top-1" />
-            <UButton
-              icon="i-lucide-x"
-              size="xs"
-              color="neutral"
-              class="absolute -right-2 -top-2 rounded-full opacity-0 group-hover:opacity-100"
-              @click="post.images.splice(i, 1)"
-            />
-          </div>
-          <button
-            class="size-24 rounded-md border border-dashed border-accented flex flex-col items-center justify-center gap-1 text-muted text-sm hover:border-primary hover:text-primary"
-            @click="pickImages"
-          >
-            <UIcon name="i-lucide-image-plus" class="size-6" />
-            添加图片
-          </button>
-        </div>
-      </UFormField>
-
-      <UFormField label="标题">
-        <UInput v-model="post.title" placeholder="填写标题" :maxlength="titleMax" class="w-full" :ui="{ trailing: 'pointer-events-none' }">
-          <template #trailing>
-            <span class="text-xs text-muted tabular-nums">{{ [...post.title].length }}/{{ titleMax }}</span>
-          </template>
-        </UInput>
-      </UFormField>
-
-      <UFormField label="正文">
-        <UTextarea v-model="post.content" placeholder="填写正文" :rows="10" autoresize class="w-full" />
-        <template #hint>
-          <span class="tabular-nums">{{ [...post.content].length }} 字</span>
-        </template>
-      </UFormField>
-
-      <UFormField label="话题" :hint="`${post.topics.length}/${maxTopics}`">
-        <TopicInput v-model="post.topics" :max="maxTopics" />
-      </UFormField>
+    <UCard :ui="{ header: 'p-0 sm:px-0', body: 'space-y-5' }">
+      <template #header>
+        <UTabs v-model="tab" :items="tabs" :content="false" variant="link" class="px-4" />
+      </template>
+      <p v-if="tab === 'common'" class="text-sm text-muted">
+        所有平台共用这份内容。某个平台要不一样（字数、话题、图片），切到它的标签页修改，只对这个平台生效。
+      </p>
+      <p v-else class="text-sm text-muted">
+        {{ platformMap[tab].name }}：没有单独设置的项沿用通用内容；在这里修改的项只发到{{ platformMap[tab].name }}。
+      </p>
+      <ContentEditor :value="editing" :limits="editingLimits" :overridden="overridden" @update="updateField" @reset="resetField" />
     </UCard>
 
     <div class="space-y-4">
@@ -168,7 +169,12 @@ async function publish() {
       </UCard>
 
       <UCard v-if="issues.length" :ui="{ body: 'p-3 sm:p-4 space-y-2' }">
-        <div v-for="i in issues" :key="i.platform.id" class="flex items-start gap-2 text-sm">
+        <div
+          v-for="i in issues"
+          :key="i.platform.id"
+          class="flex items-start gap-2 text-sm cursor-pointer rounded hover:bg-elevated -mx-1 px-1"
+          @click="tab = i.platform.id"
+        >
           <UIcon
             :name="i.errors.length ? 'i-lucide-circle-x' : 'i-lucide-circle-check'"
             :class="i.errors.length ? 'text-error' : 'text-success'"
@@ -176,6 +182,7 @@ async function publish() {
           />
           <span class="font-medium shrink-0">{{ i.platform.name }}</span>
           <span :class="i.errors.length ? 'text-error' : 'text-muted'">{{ i.errors.join('；') || '符合要求' }}</span>
+          <UBadge v-if="post.overrides[i.platform.id]" label="单独设置" size="sm" variant="subtle" class="ml-auto shrink-0" />
         </div>
       </UCard>
 

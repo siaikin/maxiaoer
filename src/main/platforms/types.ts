@@ -55,7 +55,7 @@ export interface PublishInput {
 }
 
 export interface PublishResult {
-  remoteId?: string
+  remoteId?: string | number
   url?: string
 }
 

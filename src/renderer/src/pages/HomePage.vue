@@ -30,7 +30,7 @@ const stats = computed(() => [
       <div class="flex gap-2">
         <UButton icon="i-lucide-square-pen" label="发布图文" to="/publish" />
         <UButton icon="i-lucide-user-plus" label="添加账号" color="neutral" variant="outline" to="/accounts" />
-        <UButton icon="i-lucide-hash" label="常用话题" color="neutral" variant="outline" to="/topics" />
+        <UButton icon="i-lucide-layers" label="话题合集" color="neutral" variant="outline" to="/topics" />
       </div>
     </UCard>
   </div>

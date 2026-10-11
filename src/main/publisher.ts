@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow } from 'electron'
 import type { Post, PublishJob, PublishTask } from '../shared/types'
-import { defaultSettings } from '../shared/types'
+import { contentFor, defaultSettings } from '../shared/types'
 import { findPublishedDuplicate } from '../shared/duplicate'
 import { validatePost } from '../shared/validate'
 import { beginTask } from './browser/queue'
@@ -9,14 +9,16 @@ import { confirmSession } from './accounts'
 import { browserHost } from './browser'
 import { fitImages } from './images'
 import { getAdapter } from './platforms'
-import { getStore } from './store'
+import { getDb } from './store'
 
-function broadcast(job: PublishJob) {
-  for (const win of BrowserWindow.getAllWindows()) win.webContents.send('publish:update', job)
+/** 从库里重新读一遍再发，同一次发布的几个任务并行更新时不会互相覆盖 */
+function broadcast(jobId: string) {
+  const job = getDb().getJob(jobId)
+  if (job) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('publish:update', job)
 }
 
 function findTask(jobId: string, taskId: string) {
-  const job = getStore().data.jobs.find((j) => j.id === jobId)
+  const job = getDb().getJob(jobId)
   const task = job?.tasks.find((t) => t.id === taskId)
   if (!job || !task) throw new Error('发布记录不存在')
   return { job, task }
@@ -25,15 +27,15 @@ function findTask(jobId: string, taskId: string) {
 function updater(job: PublishJob, task: PublishTask) {
   return (patch: Partial<PublishTask>) => {
     Object.assign(task, patch)
-    getStore().save()
-    broadcast(job)
+    getDb().saveTask(job.id, task)
+    broadcast(job.id)
   }
 }
 
 /** 一次发布 = 一篇内容 × 多个账号，每个账号一个子任务 */
 export function startPublish(post: Post, accountIds: string[], scheduledAt?: number): PublishJob {
-  const store = getStore()
-  const accounts = store.data.accounts.filter((a) => accountIds.includes(a.id))
+  const db = getDb()
+  const accounts = db.listAccounts().filter((a) => accountIds.includes(a.id))
   const job: PublishJob = {
     id: randomUUID(),
     postId: post.id,
@@ -43,13 +45,12 @@ export function startPublish(post: Post, accountIds: string[], scheduledAt?: num
     createdAt: Date.now(),
     tasks: accounts.map((a) => ({ id: randomUUID(), accountId: a.id, platform: a.platform, status: 'pending' })),
   }
-  const i = store.data.posts.findIndex((p) => p.id === post.id)
-  if (i >= 0) store.data.posts[i] = post
-  else store.data.posts.push(post)
-  // 记住每个账号这次的配置，供下次“使用上次选择”
-  for (const a of accounts) if (post.settings[a.id]) store.data.lastSettings[a.id] = post.settings[a.id]
-  store.data.jobs.unshift(job)
-  store.save()
+  db.tx(() => {
+    db.savePost({ ...post, overrides: post.overrides ?? {} })
+    // 记住每个账号这次的配置，供下次“使用上次选择”
+    for (const a of accounts) if (post.settings[a.id]) db.setLastSettings(a.id, post.settings[a.id])
+    db.insertJob(job)
+  })
   if (!scheduledAt || scheduledAt <= Date.now()) void runJob(job.id)
   return job
 }
@@ -58,7 +59,7 @@ const inflight = new Map<string, Promise<unknown>>()
 
 /** 不同账号最多同时两个；同一个账号串行。已经入队的调度和重试直接复用。 */
 export async function runJob(jobId: string) {
-  const job = getStore().data.jobs.find((j) => j.id === jobId)
+  const job = getDb().getJob(jobId)
   if (!job) return
   await Promise.all(job.tasks.filter((t) => t.status === 'pending').map((t) => runTask(job, t)))
 }
@@ -69,8 +70,8 @@ export async function retryTask(jobId: string, taskId: string) {
   const force = task.status === 'skipped'
   await beginTask(inflight, task.id, () => {
     Object.assign(task, { status: 'pending', error: undefined, progress: undefined })
-    getStore().save()
-    broadcast(job)
+    getDb().saveTask(job.id, task)
+    broadcast(job.id)
   }, () => runTaskBody(job, task, force))
 }
 
@@ -79,19 +80,21 @@ function runTask(job: PublishJob, task: PublishTask) {
 }
 
 async function runTaskBody(job: PublishJob, task: PublishTask, force = false) {
-  const store = getStore()
+  const db = getDb()
   const update = updater(job, task)
-  const post = store.data.posts.find((p) => p.id === job.postId)
-  const account = store.data.accounts.find((a) => a.id === task.accountId)
+  const post = db.getPost(job.postId)
+  const account = db.getAccount(task.accountId)
   if (!post || !account) return update({ status: 'failed', error: '内容或账号已被删除' })
 
   // 同一账号已经成功发过同名内容就跳过，避免重复发布。只看本地发布记录，不打开平台
-  if (!force && findPublishedDuplicate(store.data.jobs, job.id, account.id)) {
+  if (!force && findPublishedDuplicate(db.listJobs(), job.id, account.id)) {
     return update({ status: 'skipped', error: undefined, progress: undefined, finishedAt: Date.now() })
   }
 
   const adapter = getAdapter(task.platform)
-  const errors = validatePost(post, adapter.limits)
+  // 这个平台单独设置过的图片、标题、正文、话题优先
+  const content = contentFor(post, task.platform)
+  const errors = validatePost(content, adapter.limits)
   if (errors.length) return update({ status: 'failed', error: errors.join('；') })
 
   // 开发时 MXE_DRY_RUN=1：表单填好后不提交，窗口保留
@@ -103,15 +106,15 @@ async function runTaskBody(job: PublishJob, task: PublishTask, force = false) {
       account.id,
       async (ctx) => {
         await confirmSession(account, ctx)
-        const images = await fitImages(post.images.map((i) => i.path), adapter.limits.maxImageBytes)
+        const images = await fitImages(content.images.map((i) => i.path), adapter.limits.maxImageBytes)
         cleanup = images.cleanup
         return adapter.publish(
           ctx,
           {
-            title: post.title,
-            content: post.content,
+            title: content.title,
+            content: content.content,
             images: images.paths,
-            topics: post.topics.slice(0, adapter.limits.maxTopics),
+            topics: content.topics.slice(0, adapter.limits.maxTopics),
             settings: { ...defaultSettings(adapter.settings), ...post.settings[account.id] },
             dryRun,
           },
@@ -141,7 +144,7 @@ export async function deleteRemote(jobId: string, taskId: string) {
   const adapter = getAdapter(task.platform)
   if (!adapter.deleteRemote) throw new Error(`${adapter.name} 暂不支持自动删除，请到平台后台手动删除`)
   if (task.status !== 'success') throw new Error('只有发布成功的作品可以删除')
-  const account = getStore().data.accounts.find((item) => item.id === task.accountId)
+  const account = getDb().getAccount(task.accountId)
   const update = updater(job, task)
   await beginTask(inflight, `delete:${task.id}`, () => update({ status: 'deleting', error: undefined }), async () => {
     try {
@@ -166,15 +169,13 @@ export async function deleteRemote(jobId: string, taskId: string) {
 }
 
 export function removeJob(jobId: string) {
-  const store = getStore()
-  store.data.jobs = store.data.jobs.filter((j) => j.id !== jobId)
-  store.save()
+  getDb().removeJob(jobId)
 }
 
 /** 定时发布轮询 */
 export function startScheduler() {
   setInterval(() => {
-    for (const job of getStore().data.jobs) {
+    for (const job of getDb().listJobs()) {
       if (job.scheduledAt && job.scheduledAt <= Date.now() && job.tasks.some((t) => t.status === 'pending')) void runJob(job.id)
     }
   }, 30_000)

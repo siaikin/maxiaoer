@@ -5,10 +5,13 @@ import { fromLocalFileUrl } from '../shared/localFile'
 import { registerIpc } from './ipc'
 import { initBrowserHost, shutdownBrowserHost, browserHasOpen } from './browser'
 import { startScheduler } from './publisher'
+import { closeDb, getDb } from './store'
 
 // 渲染进程用 local-file:// 预览本地图片，避免开放 file://
 // 开发时用 MXE_DEBUG_PORT 打开远程调试端口，方便在真实页面上调选择器
 if (!app.isPackaged && process.env.MXE_DEBUG_PORT) app.commandLine.appendSwitch('remote-debugging-port', process.env.MXE_DEBUG_PORT)
+// 开发时 MXE_USER_DATA 指定另一份数据目录，测试不碰正在用的数据
+if (!app.isPackaged && process.env.MXE_USER_DATA) app.setPath('userData', process.env.MXE_USER_DATA)
 
 // 仅作用于本应用自己的 Electron 窗口。账号页在 CloakBrowser 里打开，不在这里改 UA，也不注入指纹脚本。
 app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|maxiaoer)\/\S+/g, '')
@@ -16,14 +19,19 @@ app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|maxiaoer)\/\S
 protocol.registerSchemesAsPrivileged([{ scheme: 'local-file', privileges: { standard: true, supportFetchAPI: true } }])
 
 function createMainWindow() {
+  // 开发时 MXE_BACKGROUND=1：主窗口建在屏幕外且不抢焦点，自动化测试时不打扰正在用电脑的人
+  const background = !app.isPackaged && process.env.MXE_BACKGROUND === '1'
   const win = new BrowserWindow({
     width: 1360,
     height: 880,
     minWidth: 1100,
     minHeight: 720,
     title: '蚂小儿',
+    // 有边框的窗口会被 macOS 拉回屏幕内，无边框的不会
+    ...(background ? { show: false, frame: false, x: -30000, y: -30000, enableLargerThanScreen: true } : {}),
     webPreferences: { preload: join(__dirname, '../preload/index.mjs'), sandbox: false },
   })
+  if (background) win.showInactive()
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
     return { action: 'deny' }
@@ -33,6 +41,8 @@ function createMainWindow() {
 }
 
 app.whenReady().then(() => {
+  // 先打开数据库：第一次启动时在这里把旧的 maxiaoer.json 导入 SQLite
+  getDb()
   initBrowserHost()
   protocol.handle('local-file', (req) => net.fetch(pathToFileURL(fromLocalFileUrl(req.url)).toString()))
   registerIpc()
@@ -48,6 +58,8 @@ app.on('before-quit', (event) => {
   quitting = true
   void shutdownBrowserHost().finally(() => app.quit())
 })
+
+app.on('will-quit', closeDb)
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
