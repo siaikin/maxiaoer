@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow } from 'electron'
 import type { Post, PublishJob, PublishTask } from '../shared/types'
 import { defaultSettings } from '../shared/types'
+import { findPublishedDuplicate } from '../shared/duplicate'
 import { validatePost } from '../shared/validate'
 import { beginTask } from './browser/queue'
 import { confirmSession } from './accounts'
@@ -61,25 +62,32 @@ export async function runJob(jobId: string) {
   await Promise.all(job.tasks.filter((t) => t.status === 'pending').map((t) => runTask(job, t)))
 }
 
+/** 重试失败的任务；对“已跳过”的任务重试即用户确认仍要发布，不再检查同名 */
 export async function retryTask(jobId: string, taskId: string) {
   const { job, task } = findTask(jobId, taskId)
+  const force = task.status === 'skipped'
   await beginTask(inflight, task.id, () => {
     Object.assign(task, { status: 'pending', error: undefined, progress: undefined })
     getStore().save()
     broadcast(job)
-  }, () => runTaskBody(job, task))
+  }, () => runTaskBody(job, task, force))
 }
 
 function runTask(job: PublishJob, task: PublishTask) {
   return beginTask(inflight, task.id, () => undefined, () => runTaskBody(job, task))
 }
 
-async function runTaskBody(job: PublishJob, task: PublishTask) {
+async function runTaskBody(job: PublishJob, task: PublishTask, force = false) {
   const store = getStore()
   const update = updater(job, task)
   const post = store.data.posts.find((p) => p.id === job.postId)
   const account = store.data.accounts.find((a) => a.id === task.accountId)
   if (!post || !account) return update({ status: 'failed', error: '内容或账号已被删除' })
+
+  // 同一账号已经成功发过同名内容就跳过，避免重复发布。只看本地发布记录，不打开平台
+  if (!force && findPublishedDuplicate(store.data.jobs, job.id, account.id)) {
+    return update({ status: 'skipped', error: undefined, progress: undefined, finishedAt: Date.now() })
+  }
 
   const adapter = getAdapter(task.platform)
   const errors = validatePost(post, adapter.limits)

@@ -44,7 +44,7 @@ export interface Post {
   updatedAt: number
 }
 
-export type PublishTaskStatus = 'pending' | 'running' | 'success' | 'failed' | 'deleting' | 'deleted'
+export type PublishTaskStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'deleting' | 'deleted'
 
 export interface PublishJob {
   id: string
