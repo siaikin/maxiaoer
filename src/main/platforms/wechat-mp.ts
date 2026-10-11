@@ -104,8 +104,15 @@ export const wechatMp: PlatformAdapter = {
     await until(ctx, () => ctx.evaluate<boolean>(imagesReady(images.length)), 30_000, '编辑页图片加载超时')
     await ctx.sleep(1000)
     // 点发表会先自动保存，几秒后弹出确认框（贴图不占群发次数）
-    await ctx.click('button.mass_send', '发表')
-    await ctx.click('.weui-desktop-dialog__wrp button.weui-desktop-btn_primary', '发表')
+    // 编辑页刚加载完时点「发表」偶尔没反应；图多、图大时自动保存又要十几秒。确认框没出来就再点
+    const confirm = '.weui-desktop-dialog__wrp button.weui-desktop-btn_primary'
+    const asked = () => ctx.evaluate<boolean>(`[...document.querySelectorAll(${JSON.stringify(confirm)})].some((b) => b.offsetWidth && b.textContent.trim() === '发表')`)
+    for (let i = 0; i < 3 && !(await asked()); i++) {
+      await ctx.click('button.mass_send', '发表')
+      await until(ctx, asked, 20_000, '').catch(() => undefined)
+    }
+    if (!(await asked())) throw new Error('发表确认框没有弹出')
+    await ctx.click(confirm, '发表')
     // 发表成功会离开编辑页；有时需要管理员扫码确认，最多等 3 分钟
     await until(
       ctx,
@@ -178,8 +185,8 @@ const publishListUrl = (token: string) => `https://mp.weixin.qq.com/cgi-bin/appm
 
 /** 发表记录里第一条标题匹配的内容链接（列表按时间倒序） */
 async function findPublished(ctx: BrowserContext, token: string, title: string) {
-  // 刚发表时记录可能还没出现或还没有链接，列表不会自己刷新，所以每轮重新打开
-  const deadline = Date.now() + 60_000
+  // 刚发表时记录可能还没出现或还没有链接，列表不会自己刷新，所以每轮重新打开。长图多时要一两分钟
+  const deadline = Date.now() + 180_000
   while (Date.now() < deadline) {
     await ctx.goto(publishListUrl(token))
     const url = await until(

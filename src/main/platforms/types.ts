@@ -19,7 +19,7 @@ export interface BrowserContext {
   waitForUrl(test: (url: string) => boolean, timeoutMs?: number): Promise<void>
   /** 用真实鼠标事件点击元素；text 不为空时点第一个文字包含 text 的可见元素 */
   click(selector: string, text?: string): Promise<void>
-  /** 需要扫码时把同一个浏览器窗口从最小化恢复出来 */
+  /** 需要扫码时把同一个浏览器窗口从屏幕外移回来并切到前台 */
   reveal(): Promise<void>
   /** 鼠标移到元素上（触发只在悬停时出现的操作按钮） */
   hover(selector: string): Promise<void>

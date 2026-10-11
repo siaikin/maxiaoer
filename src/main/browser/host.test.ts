@@ -9,7 +9,7 @@ function fakeCdp(imported: unknown[]): CdpClient {
   return {
     async send<T = any>(method: string, params?: object): Promise<T> {
       if (method === 'Network.setCookie') imported.push(params)
-      if (method === 'Browser.getWindowForTarget') return { windowId: 1, bounds: { windowState: 'normal' } } as T
+      if (method === 'Browser.getWindowForTarget' || method === 'Browser.getWindowBounds') return { windowId: 1, bounds: { windowState: 'normal' } } as T
       return {} as T
     },
     on() {},

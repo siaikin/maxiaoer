@@ -25,6 +25,27 @@ const KEYS = {
 
 const q = (value: string) => JSON.stringify(value)
 
+/** 有内容时选中输入框里的全部文字并返回 true；随后按退格删除，编辑器框架能收到真实的删除事件 */
+const selectContent = (selector: string) => `(() => {
+  const el = document.querySelector('[data-mxe-click]') ?? document.querySelector(${q(selector)})
+  if (!el) return false
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    if (!el.value) return false
+    el.focus()
+    el.select()
+    return true
+  }
+  const box = el.isContentEditable ? el : el.querySelector('[contenteditable="true"]') ?? el
+  if (!box.innerText.trim()) return false
+  box.focus()
+  const range = document.createRange()
+  range.selectNodeContents(box)
+  const selection = getSelection()
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return true
+})()`
+
 interface Box extends Rect {
   disabled: boolean
 }
@@ -52,10 +73,12 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
     evaluate<Box | null>(`(() => {
       for (const old of document.querySelectorAll('[data-mxe-click]')) old.removeAttribute('data-mxe-click')
       const els = [...document.querySelectorAll(${q(selector)})]
-      for (const el of els) {
+      for (const found of els) {
+        if (${q(text ?? '')} !== '' && !(found.textContent ?? '').includes(${q(text ?? '')})) continue
+        // 按钮里的文字常设 pointer-events: none（如微博「发送」），鼠标事件落在外层按钮上，改为点它
+        const el = getComputedStyle(found).pointerEvents === 'none' ? found.closest('button, a, [role="button"], label') ?? found : found
         const style = getComputedStyle(el)
         if (style.display === 'none' || style.visibility === 'hidden') continue
-        if (${q(text ?? '')} !== '' && !(el.textContent ?? '').includes(${q(text ?? '')})) continue
         el.scrollIntoView({ block: 'center', inline: 'nearest' })
         const r = el.getBoundingClientRect()
         const left = Math.max(r.left, 0)
@@ -137,9 +160,13 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
     }
   }
 
-  const setWindow = async (state: 'normal' | 'minimized') => {
+  const setWindow = async (state: 'normal' | 'offscreen') => {
     const { windowId } = await cdp.send<{ windowId: number }>('Browser.getWindowForTarget')
-    const bounds = state === 'minimized' ? { windowState: 'minimized' } : { windowState: 'normal', width: 1280, height: 900 }
+    // 最小化后页面变成 hidden，不再出帧：动画停住、弹窗遮罩不撤，点击会一直被拒。
+    // 后台任务改为把窗口移到屏幕外，页面仍按可见渲染。窗口状态和位置不能在一次调用里同时改
+    const { bounds: current } = await cdp.send<{ bounds: { windowState: string } }>('Browser.getWindowBounds', { windowId })
+    if (current.windowState !== 'normal') await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } })
+    const bounds = state === 'offscreen' ? { left: -20000, top: -20000, width: 1280, height: 900 } : { left: 80, top: 60, width: 1280, height: 900 }
     await cdp.send('Browser.setWindowBounds', { windowId, bounds })
   }
 
@@ -171,7 +198,11 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
       throw new Error(`等待页面跳转超时，当前：${ctx.currentUrl()}`)
     },
     click,
-    reveal: () => setWindow('normal'),
+    async reveal() {
+      await setWindow('normal')
+      // 从屏幕外移回来后再切到前台，等用户扫码
+      await cdp.send('Page.bringToFront').catch(() => undefined)
+    },
     async hover(selector) {
       await ctx.waitFor(selector)
       const box = await locate(selector)
@@ -217,6 +248,11 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
     },
     async type(selector, text) {
       await click(selector)
+      // 平台会恢复上次没发出去的草稿，先清空再输入，不在旧内容后面追加
+      for (let i = 0; i < 3 && (await evaluate<boolean>(selectContent(selector))); i++) {
+        await ctx.press('Backspace')
+        await sleep(200)
+      }
       await ctx.insertText(text)
     },
     insertText: (text) => human.type(text, () => ctx.press('Enter')),
@@ -296,4 +332,4 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
   return Object.assign(ctx, { setWindow })
 }
 
-export type PageContext = BrowserContext & { setWindow(state: 'normal' | 'minimized'): Promise<void> }
+export type PageContext = BrowserContext & { setWindow(state: 'normal' | 'offscreen'): Promise<void> }

@@ -76,6 +76,8 @@ export interface PlatformLimits {
   contentMax: number
   minImages: number
   maxImages: number
+  /** 单张图片的大小上限（字节）。超过时发布前自动压缩，不改原图 */
+  maxImageBytes?: number
   requiresTitle: boolean
   maxTopics?: number
 }

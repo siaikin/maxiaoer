@@ -38,9 +38,13 @@ export const facebook: PlatformAdapter = {
     await ctx.goto('https://www.facebook.com/')
     const create = createLabels.map((l) => `div[aria-label="${l}"]`).join(', ')
     await ctx.waitFor(create, 20_000)
-    await ctx.click(`${create} span`)
     const editor = 'div[role="dialog"] div[contenteditable="true"][role="textbox"]'
-    await ctx.waitFor(editor, 15_000)
+    // 首页刚加载完时第一下点击偶尔没反应，发帖框没弹出就再点
+    for (let i = 0; i < 3 && !(await ctx.exists(editor)); i++) {
+      await ctx.click(`${create} span`)
+      await until(ctx, () => ctx.exists(editor), 8000, '').catch(() => undefined)
+    }
+    await ctx.waitFor(editor, 5_000)
 
     const audience = String(input.settings.audience ?? '公开')
     // 发帖框沿用上次的分享对象，不一致才改；中文界面「好友」显示为「你的好友」
@@ -75,7 +79,20 @@ export const facebook: PlatformAdapter = {
     if (input.images.length) {
       onProgress(`上传 ${input.images.length} 张图片`)
       await ctx.setFiles('div[role="dialog"] input[type="file"][accept*="image"]', input.images)
-      await until(ctx, () => ctx.evaluate<boolean>(`document.querySelectorAll('div[role="dialog"] img[src^="blob:"]').length >= ${input.images.length}`), 60_000, '图片上传超时')
+      // 图多或长图时只显示前几张，最后一格盖着「+N」（N 含被盖住的那张）
+      await until(
+        ctx,
+        () =>
+          ctx.evaluate<boolean>(`(() => {
+            const shown = document.querySelectorAll('div[role="dialog"] img[src^="blob:"]').length
+            const more = [...document.querySelectorAll('div[role="dialog"] *')]
+              .map((e) => !e.children.length && /^\\+(\\d+)$/.exec(e.textContent.trim()))
+              .find(Boolean)
+            return shown + (more ? Number(more[1]) - 1 : 0) >= ${input.images.length}
+          })()`),
+        60_000,
+        '图片上传超时',
+      )
     }
 
     if (input.dryRun) return {}

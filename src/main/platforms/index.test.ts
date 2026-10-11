@@ -14,3 +14,10 @@ describe('adapters', () => {
     }
   })
 })
+
+describe('crc32', () => {
+  it('与 zlib 的标准 CRC-32 一致', async () => {
+    const { crc32 } = await import('./util')
+    expect(crc32(new TextEncoder().encode('123456789'))).toBe(0xcbf43926)
+  })
+})
