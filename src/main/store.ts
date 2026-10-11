@@ -5,12 +5,12 @@ import { Db } from './db'
 
 let db: Db | undefined
 
-/** SQLite 数据库放在 userData 下；第一次打开时导入旧的 maxiaoer.json */
+/** SQLite 数据库放在 userData 下 */
 export function getDb() {
   if (!db) {
     const dir = app.getPath('userData')
     mkdirSync(dir, { recursive: true })
-    db = new Db(join(dir, 'maxiaoer.db'), join(dir, 'maxiaoer.json'))
+    db = new Db(join(dir, 'maxiaoer.db'))
   }
   return db
 }

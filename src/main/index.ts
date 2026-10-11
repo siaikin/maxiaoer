@@ -41,7 +41,6 @@ function createMainWindow() {
 }
 
 app.whenReady().then(() => {
-  // 先打开数据库：第一次启动时在这里把旧的 maxiaoer.json 导入 SQLite
   getDb()
   initBrowserHost()
   protocol.handle('local-file', (req) => net.fetch(pathToFileURL(fromLocalFileUrl(req.url)).toString()))

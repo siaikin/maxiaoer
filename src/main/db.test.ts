@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -28,55 +28,24 @@ const job = (id: string, createdAt: number): PublishJob => ({
   ],
 })
 
-const legacy = {
-  accounts: [account, { ...account, id: 'a2', platform: 'x', uid: undefined, checkedAt: 5 }],
-  posts: [{ ...post, overrides: undefined }],
-  jobs: [job('j2', 20), job('j1', 10)],
-  commonTopics: ['#旅行', '美食', '旅行'],
-  lastSettings: { a1: { visibility: '粉丝' } },
-  useLast: { a1: false },
-  collections: { a1: { items: [{ id: 'c1', name: '合集' }], fetchedAt: 99 } },
-}
-
 const tmp = () => mkdtempSync(join(tmpdir(), 'mxe-db-'))
 
 describe('Db', () => {
-  it('从旧 JSON 导入全部数据，并把旧文件改名留作备份', () => {
-    const dir = tmp()
-    const jsonFile = join(dir, 'maxiaoer.json')
-    writeFileSync(jsonFile, JSON.stringify(legacy))
-    const db = new Db(join(dir, 'maxiaoer.db'), jsonFile)
-
-    expect(db.listAccounts()).toEqual(legacy.accounts.map((a) => JSON.parse(JSON.stringify(a))))
-    expect(db.getPost('p1')).toEqual({ ...post, overrides: {} })
-    expect(db.listJobs()).toEqual(legacy.jobs)
-    expect(db.listTopicPresets()).toEqual([{ id: 'common', name: '常用话题', topics: ['旅行', '美食'] }])
-    expect(db.lastSettings()).toEqual(legacy.lastSettings)
-    expect(db.useLast()).toEqual(legacy.useLast)
-    expect(db.collections('a1')).toEqual(legacy.collections.a1)
-    expect(existsSync(jsonFile)).toBe(false)
-    expect(JSON.parse(readFileSync(`${jsonFile}.migrated`, 'utf8'))).toEqual(legacy)
+  it('重新打开已有的库不会重复建表，数据还在', () => {
+    const file = join(tmp(), 'maxiaoer.db')
+    const db = new Db(file)
+    db.saveAccount(account)
     db.close()
-
-    // 再次打开不会重复导入
-    writeFileSync(jsonFile, JSON.stringify({ accounts: [{ ...account, id: 'zz' }] }))
-    const again = new Db(join(dir, 'maxiaoer.db'), jsonFile)
-    expect(again.listAccounts().map((a) => a.id)).toEqual(['a1', 'a2'])
+    const again = new Db(file)
+    expect(again.listAccounts()).toEqual([account])
     again.close()
   })
 
-  it('导入失败时什么都不写，旧文件保持原样', () => {
-    const dir = tmp()
-    const jsonFile = join(dir, 'maxiaoer.json')
-    // 第二个账号缺少必填字段
-    writeFileSync(jsonFile, JSON.stringify({ accounts: [account, { id: 'b' }] }))
-    expect(() => new Db(join(dir, 'maxiaoer.db'), jsonFile)).toThrow()
-    expect(existsSync(jsonFile)).toBe(true)
-    // 修好之后重新打开能正常导入
-    writeFileSync(jsonFile, JSON.stringify({ accounts: [account] }))
-    const db = new Db(join(dir, 'maxiaoer.db'), jsonFile)
-    expect(db.listAccounts()).toEqual([account])
-    db.close()
+  it('内容连同各平台的单独设置一起保存', () => {
+    const db = new Db(':memory:')
+    db.savePost(post)
+    db.savePost({ ...post, title: '改过的标题', updatedAt: 3 })
+    expect(db.getPost('p1')).toEqual({ ...post, title: '改过的标题', updatedAt: 3 })
   })
 
   it('任务更新只改状态字段，顺序不变', () => {
@@ -113,21 +82,5 @@ describe('Db', () => {
     db.setCollections('a1', [])
     db.removeAccount('a1')
     expect([db.listAccounts(), db.lastSettings(), db.useLast(), db.collections('a1')]).toEqual([[], {}, {}, undefined])
-  })
-})
-
-// 用真实数据的备份验证迁移：MXE_LEGACY_JSON=/path/to/maxiaoer.json pnpm test db
-describe.skipIf(!process.env.MXE_LEGACY_JSON)('真实数据迁移', () => {
-  it('导入后再读出来和原 JSON 一致', () => {
-    const dir = tmp()
-    const src = readFileSync(process.env.MXE_LEGACY_JSON!, 'utf8')
-    writeFileSync(join(dir, 'maxiaoer.json'), src)
-    const data = JSON.parse(src)
-    const db = new Db(join(dir, 'maxiaoer.db'), join(dir, 'maxiaoer.json'))
-    expect(db.listAccounts()).toEqual(data.accounts)
-    expect(db.listJobs()).toEqual(data.jobs)
-    for (const p of data.posts) expect(db.getPost(p.id)).toEqual({ ...p, overrides: {} })
-    expect(db.lastSettings()).toEqual(data.lastSettings)
-    expect(db.listTopicPresets()[0]?.topics ?? []).toEqual(data.commonTopics)
   })
 })

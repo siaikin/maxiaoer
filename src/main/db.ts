@@ -1,18 +1,6 @@
-import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import type { Account, Collection, Post, PublishJob, PublishTask, SettingValues, TopicPreset } from '../shared/types'
 import { normalizeTopics } from '../shared/validate'
-
-/** 旧版 JSON 存储的结构，只用于迁移 */
-interface LegacyData {
-  accounts?: Account[]
-  posts?: Post[]
-  jobs?: PublishJob[]
-  commonTopics?: string[]
-  lastSettings?: Record<string, SettingValues>
-  useLast?: Record<string, boolean>
-  collections?: Record<string, { items: Collection[]; fetchedAt: number }>
-}
 
 /** 每个版本一段建表语句，按顺序执行；版本号存在 PRAGMA user_version */
 const MIGRATIONS = [
@@ -124,38 +112,28 @@ const toTask = (r: Row): PublishTask =>
     finishedAt: opt(r.finished_at),
   })
 
-/**
- * SQLite 存储（Node 内置 node:sqlite，不需要原生模块）。
- * 第一次打开时如果有旧的 maxiaoer.json，整体导入后改名为 maxiaoer.json.migrated 留作备份。
- */
+/** SQLite 存储（Node 内置 node:sqlite，不需要原生模块） */
 export class Db {
   readonly sql: DatabaseSync
 
-  constructor(file: string, legacyJson?: string) {
+  constructor(file: string) {
     this.sql = new DatabaseSync(file)
     this.sql.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;')
-    // 建表和导入在同一个事务里：导入失败时库保持空白，旧文件不动，下次启动重试
-    const imported = this.tx(() => {
-      if (!this.migrate() || !legacyJson || !existsSync(legacyJson)) return false
-      this.importLegacy(JSON.parse(readFileSync(legacyJson, 'utf8')))
-      return true
-    })
-    if (imported) renameSync(legacyJson!, `${legacyJson}.migrated`)
+    this.migrate()
   }
 
   close() {
     this.sql.close()
   }
 
-  /** 执行未跑过的迁移，返回是否为新建的库 */
+  /** 执行未跑过的迁移 */
   private migrate() {
     const version = (this.sql.prepare('PRAGMA user_version').get() as Row).user_version as number
-    if (version >= MIGRATIONS.length) return false
+    if (version >= MIGRATIONS.length) return
     this.tx(() => {
       for (const stmt of MIGRATIONS.slice(version)) this.sql.exec(stmt)
       this.sql.exec(`PRAGMA user_version = ${MIGRATIONS.length}`)
     })
-    return version === 0
   }
 
   private depth = 0
@@ -174,21 +152,6 @@ export class Db {
     } finally {
       this.depth--
     }
-  }
-
-  /** 旧 JSON 数据整体导入；任何一条失败都回滚，旧文件保持不动 */
-  importLegacy(data: LegacyData) {
-    this.tx(() => {
-      for (const a of data.accounts ?? []) this.saveAccount(a)
-      for (const p of data.posts ?? []) this.savePost({ ...p, overrides: p.overrides ?? {} })
-      // 旧数据新的在前，倒序插入保持 created_at 相同时的顺序
-      for (const j of [...(data.jobs ?? [])].reverse()) this.insertJob(j)
-      const common = normalizeTopics(data.commonTopics ?? [])
-      if (common.length) this.saveTopicPreset({ id: 'common', name: '常用话题', topics: common })
-      for (const [id, values] of Object.entries(data.lastSettings ?? {})) this.setLastSettings(id, values)
-      for (const [id, value] of Object.entries(data.useLast ?? {})) this.setUseLast(id, value)
-      for (const [id, c] of Object.entries(data.collections ?? {})) this.setCollections(id, c.items, c.fetchedAt)
-    })
   }
 
   // ---- 账号 ----

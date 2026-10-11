@@ -26,7 +26,7 @@ src/
     platforms/       各平台适配器：登录检测、发布、删除、合集
     accounts.ts      登录、重新登录、账号检测、合集缓存
     publisher.ts     发布队列、重试、删除、定时
-    db.ts            SQLite 存储（Node 内置 node:sqlite，userData/maxiaoer.db）；首次启动自动导入旧的 maxiaoer.json，原文件改名为 maxiaoer.json.migrated 保留
+    db.ts            SQLite 存储（Node 内置 node:sqlite，userData/maxiaoer.db）
     store.ts         打开数据库
   preload/           contextBridge 暴露 window.maxiaoer
   renderer/          Vue 界面（首页 / 账号管理 / 发布图文 / 发布记录 / 话题合集）
