@@ -12,7 +12,8 @@
     "preview": "electron-vite preview",
     "typecheck": "vue-tsc -p tsconfig.web.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
-    "package": "electron-vite build && electron-builder"
+    "browser:prepare": "node scripts/prepare-browser.mjs",
+    "package": "pnpm browser:prepare && electron-vite build && electron-builder"
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.142",
@@ -39,5 +40,9 @@
       "@tailwindcss/oxide",
       "vue-demi"
     ]
+  },
+  "dependencies": {
+    "cloakbrowser": "0.6.0",
+    "puppeteer-core": "^25.13.0"
   }
 }

@@ -9,6 +9,7 @@ const api: MaxiaoerApi = {
   accounts: {
     list: invoke('accounts:list'),
     login: invoke('accounts:login'),
+    relogin: invoke('accounts:relogin'),
     check: invoke('accounts:check'),
     open: invoke('accounts:open'),
     remove: invoke('accounts:remove'),

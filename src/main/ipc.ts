@@ -1,6 +1,6 @@
 import { dialog, ipcMain } from 'electron'
 import { normalizeTopics } from '../shared/validate'
-import { checkAccount, listCollections, loginWithBrowser, openAccount, removeAccount } from './accounts'
+import { checkAccount, listCollections, loginWithBrowser, openAccount, relogin, removeAccount } from './accounts'
 import { adapters, platformInfo } from './platforms'
 import { deleteRemote, removeJob, retryTask, startPublish } from './publisher'
 import { getStore } from './store'
@@ -13,6 +13,7 @@ export function registerIpc() {
 
   handle('accounts:list', () => store.data.accounts)
   handle('accounts:login', loginWithBrowser)
+  handle('accounts:relogin', relogin)
   handle('accounts:check', checkAccount)
   handle('accounts:open', openAccount)
   handle('accounts:remove', removeAccount)

@@ -23,6 +23,13 @@ async function add(platform: PlatformId) {
   await refreshAccounts()
 }
 
+async function relogin(a: Account) {
+  await run(a, async () => {
+    const account = await window.maxiaoer.accounts.relogin(a.id)
+    if (account) toast.add({ title: `已重新登录 ${account.nickname}`, color: 'success' })
+  })
+}
+
 async function run(a: Account, fn: () => Promise<unknown>, ok?: string) {
   busy.value = a.id
   try {
@@ -36,7 +43,7 @@ async function run(a: Account, fn: () => Promise<unknown>, ok?: string) {
   }
 }
 
-const status = { active: ['正常', 'success'], expired: ['已失效', 'error'], unknown: ['未检测', 'neutral'] } as const
+const status = { active: ['正常', 'success'], expired: ['需重新登录', 'error'], unknown: ['未检测', 'neutral'] } as const
 
 const columns: TableColumn<Account>[] = [
   {
@@ -57,7 +64,7 @@ const columns: TableColumn<Account>[] = [
       return h('div', { class: 'flex justify-end gap-1' }, [
         btn('进入后台', 'i-lucide-external-link', () => window.maxiaoer.accounts.open(a.id)),
         btn('检测', 'i-lucide-refresh-cw', () => run(a, () => window.maxiaoer.accounts.check(a.id))),
-        a.status === 'expired' ? btn('重新登录', 'i-lucide-log-in', () => add(a.platform), 'primary') : null,
+        a.status !== 'active' ? btn('重新登录', 'i-lucide-log-in', () => void relogin(a), 'primary') : null,
         btn('删除', 'i-lucide-trash-2', () => run(a, () => window.maxiaoer.accounts.remove(a.id), '已删除'), 'error'),
       ])
     },

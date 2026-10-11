@@ -247,10 +247,9 @@ async function selectCollection(ctx: BrowserContext, collection: Collection) {
       const hit = await ctx.evaluate<boolean>(`(() => {
         const el = [...document.querySelectorAll(${JSON.stringify(item)})].find((e) => e.textContent.trim() === ${JSON.stringify(collection.name)})
         if (el) { el.setAttribute('data-mxe', 'collection-target'); return true }
-        const box = document.querySelector('.collection-plugin-popover-content')
-        if (box) box.scrollTop = box.scrollHeight
         return false
       })()`)
+      if (!hit && (await ctx.exists('.collection-plugin-popover-content'))) await ctx.scroll('.collection-plugin-popover-content', 480)
       return hit ? '[data-mxe="collection-target"]' : null
     },
     10_000,

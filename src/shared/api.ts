@@ -7,6 +7,8 @@ export interface MaxiaoerApi {
     list(): Promise<Account[]>
     /** 弹出独立分区的登录窗口，登录成功后返回新账号 */
     login(platform: PlatformId): Promise<Account | null>
+    /** 用原来的账号 id 重新登录，保留发布记录和设置，并核对平台身份 */
+    relogin(id: string): Promise<Account | null>
     check(id: string): Promise<Account>
     /** 带登录态打开平台后台 */
     open(id: string): Promise<void>

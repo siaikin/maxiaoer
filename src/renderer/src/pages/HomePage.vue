@@ -6,7 +6,7 @@ const { accounts, jobs } = useAppState()
 const tasks = computed(() => jobs.value.flatMap((j) => j.tasks))
 const stats = computed(() => [
   { label: '已绑定账号', value: accounts.value.length, icon: 'i-lucide-users' },
-  { label: '登录失效', value: accounts.value.filter((a) => a.status === 'expired').length, icon: 'i-lucide-user-x' },
+  { label: '需重新登录', value: accounts.value.filter((a) => a.status === 'expired').length, icon: 'i-lucide-user-x' },
   { label: '发布成功', value: tasks.value.filter((t) => t.status === 'success').length, icon: 'i-lucide-circle-check' },
   { label: '发布失败', value: tasks.value.filter((t) => t.status === 'failed').length, icon: 'i-lucide-circle-x' },
 ])
