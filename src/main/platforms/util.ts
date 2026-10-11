@@ -28,6 +28,29 @@ export async function clickWithin(ctx: BrowserContext, selector: string, text: s
 
 const MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' }
 
+export const imageMime = (path: string) => MIME[extname(path).toLowerCase()] ?? 'application/octet-stream'
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+  return c >>> 0
+})
+
+export function crc32(data: Uint8Array) {
+  let c = 0xffffffff
+  for (const byte of data) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8)
+  return (c ^ 0xffffffff) >>> 0
+}
+
+/** 在页面上下文里用 fetch 以 application/octet-stream 上传原始文件内容（带页面自己的 cookie），返回 JSON */
+export async function pageFetchBinary<T>(ctx: BrowserContext, url: string, data: Buffer): Promise<T> {
+  return ctx.evaluate<T>(`(async () => {
+    const body = Uint8Array.from(atob(${q(data.toString('base64'))}), (c) => c.charCodeAt(0))
+    const res = await fetch(${q(url)}, { method: 'POST', body, credentials: 'include', headers: { 'content-type': 'application/octet-stream' } })
+    return res.json()
+  })()`)
+}
+
 /**
  * 在页面上下文里用 fetch 提交 multipart 表单（带上页面自己的 cookie / referer），返回 JSON。
  * 值为 { file } 的字段会读取本地文件作为 Blob 上传。
@@ -42,7 +65,7 @@ export async function pageFetchForm<T>(
     encoded[k] =
       typeof v === 'string'
         ? v
-        : { name: basename(v.file), type: MIME[extname(v.file).toLowerCase()] ?? 'application/octet-stream', base64: (await readFile(v.file)).toString('base64') }
+        : { name: basename(v.file), type: imageMime(v.file), base64: (await readFile(v.file)).toString('base64') }
   }
   return ctx.evaluate<T>(`(async () => {
     const fields = ${JSON.stringify(encoded)}

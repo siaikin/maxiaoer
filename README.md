@@ -42,7 +42,7 @@ resources/cloakbrowser/   内核版本钉扎与许可证；二进制由 prepare 
 | 平台 | 参考 | 删除作品 |
 | --- | --- | --- |
 | 小红书 | [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp)（Apache-2.0）：上传、标题正文、话题联想、可见范围、原创声明、发布按钮 | 笔记管理页 |
-| 微博 | [leaperone/MultiPost-Extension](https://github.com/leaperone/MultiPost-Extension)（Apache-2.0） | `/ajax/statuses/destroy` |
+| 微博 | 在已登录页面里直接调网页版接口：`picupload.weibo.com` 传图、`/ajax/statuses/update` 发帖（带网页版风控 SDK 给的 `fp`），不点发布框 | `/ajax/statuses/destroy` |
 | 微信公众号 | MultiPost-Extension：后台接口上传图片、创建图片消息 | 发表记录页（需管理员扫码） |
 | X | MultiPost-Extension | 帖子菜单 |
 | Facebook | MultiPost-Extension | 帖子菜单 |
