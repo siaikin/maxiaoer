@@ -12,6 +12,7 @@ const statusMeta: Record<PublishTask['status'], { label: string; color: 'neutral
   running: { label: '发布中', color: 'info' },
   success: { label: '已发布', color: 'success' },
   failed: { label: '失败', color: 'error' },
+  skipped: { label: '已跳过（同名已发布）', color: 'warning' },
   deleting: { label: '删除中', color: 'warning' },
   deleted: { label: '已删除', color: 'neutral' },
 }
@@ -93,6 +94,7 @@ function jobActions(job: PublishJob) {
           <div class="ml-auto flex gap-1">
             <UButton v-if="t.url && t.status === 'success'" :to="t.url" target="_blank" size="xs" variant="ghost" icon="i-lucide-external-link" label="查看" />
             <UButton v-if="t.status === 'failed'" size="xs" variant="ghost" icon="i-lucide-rotate-cw" label="重试" @click="retry(job, t)" />
+            <UButton v-if="t.status === 'skipped'" size="xs" variant="ghost" icon="i-lucide-send" label="仍要发布" @click="retry(job, t)" />
             <UButton
               v-if="canDelete(t)"
               size="xs"
