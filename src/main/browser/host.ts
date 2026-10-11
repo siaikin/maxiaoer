@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { app, session } from 'electron'
-import { getStore } from '../store'
+import { getDb } from '../store'
 import { assertKernel, kernelRoot } from './kernel'
 import { partitionFor } from './partition'
 import { createBrowserHost } from './session'
@@ -20,7 +20,7 @@ export function initBrowserHost() {
     kernelBinary: () => assertKernel(kernelRoot(app.isPackaged, process.resourcesPath, app.getAppPath())),
     profileDir: (id) => join(app.getPath('userData'), 'browsers', id),
     readCookies: async (id) => session.fromPartition(partitionFor(id)).cookies.get({}),
-    isExistingAccount: (id) => getStore().data.accounts.some((account) => account.id === id),
+    isExistingAccount: (id) => !!getDb().getAccount(id),
     timezone: machineTimezone,
   })
 }

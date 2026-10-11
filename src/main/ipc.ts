@@ -1,17 +1,17 @@
 import { dialog, ipcMain } from 'electron'
-import { normalizeTopics } from '../shared/validate'
+import type { TopicPreset } from '../shared/types'
 import { checkAccount, listCollections, loginWithBrowser, openAccount, relogin, removeAccount } from './accounts'
 import { adapters, platformInfo } from './platforms'
 import { deleteRemote, removeJob, retryTask, startPublish } from './publisher'
-import { getStore } from './store'
+import { getDb } from './store'
 
 export function registerIpc() {
-  const store = getStore()
+  const db = getDb()
   const handle = (channel: string, fn: (...args: any[]) => unknown) => ipcMain.handle(channel, (_, ...args) => fn(...args))
 
   handle('platforms', () => Object.values(adapters).map(platformInfo))
 
-  handle('accounts:list', () => store.data.accounts)
+  handle('accounts:list', () => db.listAccounts())
   handle('accounts:login', loginWithBrowser)
   handle('accounts:relogin', relogin)
   handle('accounts:check', checkAccount)
@@ -28,20 +28,17 @@ export function registerIpc() {
   })
 
   handle('publish:start', startPublish)
-  handle('publish:jobs', () => store.data.jobs)
+  handle('publish:jobs', () => db.listJobs())
   handle('publish:retry', retryTask)
   handle('publish:deleteRemote', deleteRemote)
   handle('publish:removeJob', removeJob)
 
-  handle('prefs:commonTopics', () => store.data.commonTopics)
-  handle('prefs:setCommonTopics', (topics: string[]) => {
-    store.data.commonTopics = normalizeTopics(topics)
-    store.save()
-  })
-  handle('prefs:lastSettings', () => store.data.lastSettings)
-  handle('prefs:useLast', () => store.data.useLast)
-  handle('prefs:setUseLast', (accountId: string, value: boolean) => {
-    store.data.useLast[accountId] = value
-    store.save()
-  })
+  handle('topicPresets:list', () => db.listTopicPresets())
+  handle('topicPresets:save', (preset: TopicPreset) => db.saveTopicPreset(preset))
+  handle('topicPresets:remove', (id: string) => db.removeTopicPreset(id))
+  handle('topicPresets:reorder', (ids: string[]) => db.reorderTopicPresets(ids))
+
+  handle('prefs:lastSettings', () => db.lastSettings())
+  handle('prefs:useLast', () => db.useLast())
+  handle('prefs:setUseLast', (accountId: string, value: boolean) => db.setUseLast(accountId, value))
 }

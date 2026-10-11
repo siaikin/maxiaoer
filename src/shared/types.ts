@@ -31,17 +31,48 @@ export interface Collection {
   count?: number
 }
 
-export interface Post {
-  id: string
+/** 图片、标题、正文、话题：各平台可以单独改写的部分 */
+export interface PostContent {
   title: string
   content: string
   images: ImageAsset[]
   /** 话题，不带 # */
   topics: string[]
+}
+
+export const CONTENT_FIELDS = ['images', 'title', 'content', 'topics'] as const satisfies readonly (keyof PostContent)[]
+export type ContentField = (typeof CONTENT_FIELDS)[number]
+
+/** 某个平台单独设置的字段；没有出现的字段沿用通用内容 */
+export type ContentOverride = Partial<PostContent>
+
+/** 一篇内容：通用稿 + 各平台的单独设置 */
+export interface Post extends PostContent {
+  id: string
+  /** 平台 -> 单独设置的字段 */
+  overrides: Partial<Record<PlatformId, ContentOverride>>
   /** 每个账号的发布配置（谁可以看、内容声明、合集……） */
   settings: Record<string, SettingValues>
   createdAt: number
   updatedAt: number
+}
+
+/** 某个平台实际发布的内容：单独设置的字段优先，其余沿用通用内容 */
+export function contentFor(post: PostContent & { overrides?: Post['overrides'] }, platform: PlatformId): PostContent {
+  const o = post.overrides?.[platform] ?? {}
+  return {
+    title: o.title ?? post.title,
+    content: o.content ?? post.content,
+    images: o.images ?? post.images,
+    topics: o.topics ?? post.topics,
+  }
+}
+
+/** 话题合集：一组预设话题，发布时一键加入 */
+export interface TopicPreset {
+  id: string
+  name: string
+  topics: string[]
 }
 
 export type PublishTaskStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'deleting' | 'deleted'
@@ -63,7 +94,7 @@ export interface PublishTask {
   status: PublishTaskStatus
   progress?: string
   /** 平台作品 id，删除时用 */
-  remoteId?: string
+  remoteId?: string | number
   url?: string
   error?: string
   startedAt?: number

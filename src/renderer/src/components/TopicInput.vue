@@ -1,23 +1,37 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { presetSelected, togglePreset } from '../../../shared/topics'
 import { normalizeTopics } from '../../../shared/validate'
+import type { TopicPreset } from '../../../shared/types'
 import { useAppState } from '../composables/useAppState'
 
-/** 话题输入：已选话题显示为标签，下方可一键添加常用话题 */
+/** 话题输入：已选话题显示为标签，下方的话题合集点一下整组加入，再点一下整组取消 */
 const topics = defineModel<string[]>({ required: true })
 const props = defineProps<{ max?: number }>()
-const { commonTopics, saveCommonTopics } = useAppState()
+const { topicPresets, saveTopicPreset } = useAppState()
+const toast = useToast()
 
 const model = computed({
   get: () => topics.value,
   set: (v: string[]) => (topics.value = normalizeTopics(v)),
 })
-const unused = computed(() => commonTopics.value.filter((t) => !topics.value.includes(t)))
-const full = computed(() => !!props.max && topics.value.length >= props.max)
-const notSaved = computed(() => topics.value.filter((t) => !commonTopics.value.includes(t)))
 
-function add(t: string) {
-  if (!full.value) topics.value = normalizeTopics([...topics.value, t])
+function toggle(p: TopicPreset) {
+  const { topics: next, dropped } = togglePreset(topics.value, p.topics, props.max)
+  topics.value = next
+  if (dropped) toast.add({ title: `话题最多 ${props.max} 个，「${p.name}」有 ${dropped} 个没有加入`, color: 'warning' })
+}
+
+// 把当前话题存为新的合集
+const saving = ref(false)
+const presetName = ref('')
+async function saveAsPreset() {
+  const name = presetName.value.trim()
+  if (!name) return
+  await saveTopicPreset({ id: crypto.randomUUID(), name, topics: [...topics.value] })
+  saving.value = false
+  presetName.value = ''
+  toast.add({ title: `已存为话题合集「${name}」`, color: 'success', icon: 'i-lucide-check' })
 }
 </script>
 
@@ -34,26 +48,29 @@ function add(t: string) {
     >
       <template #item-text="{ item }">#{{ item }}</template>
     </UInputTags>
-    <div v-if="unused.length || notSaved.length" class="flex flex-wrap items-center gap-1.5">
-      <span class="text-xs text-muted">常用话题</span>
-      <UBadge
-        v-for="t in unused"
-        :key="t"
-        :label="`#${t}`"
-        color="neutral"
-        variant="soft"
-        class="cursor-pointer hover:bg-accented"
-        :class="{ 'opacity-50 pointer-events-none': full }"
-        @click="add(t)"
-      />
-      <UButton
-        v-if="notSaved.length"
-        size="xs"
-        variant="link"
-        icon="i-lucide-bookmark-plus"
-        label="存为常用"
-        @click="saveCommonTopics([...commonTopics, ...notSaved])"
-      />
+    <div class="flex flex-wrap items-center gap-1.5">
+      <span class="text-xs text-muted">话题合集</span>
+      <UTooltip v-for="p in topicPresets" :key="p.id" :text="p.topics.map((t) => `#${t}`).join(' ') || '空合集'">
+        <UButton
+          size="xs"
+          :variant="presetSelected(topics, p.topics) ? 'solid' : 'soft'"
+          :color="presetSelected(topics, p.topics) ? 'primary' : 'neutral'"
+          :icon="presetSelected(topics, p.topics) ? 'i-lucide-check' : 'i-lucide-layers'"
+          :label="`${p.name} · ${p.topics.length}`"
+          :disabled="!p.topics.length"
+          @click="toggle(p)"
+        />
+      </UTooltip>
+      <UPopover v-model:open="saving">
+        <UButton v-if="topics.length" size="xs" variant="link" icon="i-lucide-bookmark-plus" label="存为合集" />
+        <template #content>
+          <form class="flex gap-2 p-2" @submit.prevent="saveAsPreset">
+            <UInput v-model="presetName" placeholder="合集名称" size="sm" autofocus />
+            <UButton type="submit" size="sm" label="保存" :disabled="!presetName.trim()" />
+          </form>
+        </template>
+      </UPopover>
+      <UButton v-if="!topicPresets.length && !topics.length" size="xs" variant="link" to="/topics" label="去新建" />
     </div>
   </div>
 </template>
