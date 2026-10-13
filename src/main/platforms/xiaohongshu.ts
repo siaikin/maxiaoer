@@ -1,4 +1,5 @@
 import type { Collection } from '../../shared/types'
+import { IS_DECOY } from '../anti-detection/decoy'
 import { placeholderImage } from './placeholder'
 import type { BrowserContext, PlatformAdapter } from './types'
 import { clickWithin, mark, until } from './util'
@@ -77,8 +78,12 @@ export const xiaohongshu: PlatformAdapter = {
         // 联想结果异步返回，先显示“无结果”，等几秒
         const found = await until(ctx, () => ctx.exists('#creator-editor-topic-container .item'), 5000, '').catch(() => false)
         if (found) {
-          const exact = await mark(ctx, '#creator-editor-topic-container .item', `#${topic}`)
-          await ctx.click(exact ?? '#creator-editor-topic-container .item')
+          // 鼠标移上去列表会整体重新渲染，标记会跟着旧节点丢掉，所以按位置定位，每次重试都能找到新节点
+          const index = await ctx.evaluate<number>(`(() => {
+            const items = [...document.querySelectorAll('#creator-editor-topic-container > .item')]
+            return Math.max(0, items.findIndex((e) => e.querySelector('.name')?.textContent.trim() === ${JSON.stringify(`#${topic}`)}))
+          })()`)
+          await ctx.click(`#creator-editor-topic-container > .item:nth-child(${index + 1})`)
         } else await ctx.press('Space')
         await ctx.sleep(400)
       }
@@ -187,8 +192,15 @@ async function openImageTab(ctx: BrowserContext) {
   await ctx.waitFor('div.upload-content', 20_000)
   await ctx.sleep(1000)
   await closeGuides(ctx)
-  if (await ctx.exists('div.creator-tab')) await ctx.click('div.creator-tab', '上传图文')
-  await ctx.sleep(800)
+  // 顶部 tab 混有透明的诱饵克隆，只看真实 tab；URL 带 target=image 时通常已经选中
+  const active = await ctx.evaluate<boolean>(`(() => {
+    const isDecoy = ${IS_DECOY}
+    return [...document.querySelectorAll('div.creator-tab.active')].some((e) => !isDecoy(e) && e.textContent.includes('上传图文'))
+  })()`)
+  if (!active && (await ctx.exists('div.creator-tab'))) {
+    await ctx.click('div.creator-tab', '上传图文')
+    await ctx.sleep(800)
+  }
 }
 
 /** 关掉新功能引导浮层 */

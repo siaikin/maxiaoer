@@ -52,10 +52,10 @@ describe('Db', () => {
     const db = new Db(':memory:')
     db.insertJob(job('j1', 1))
     const j = db.getJob('j1')!
-    db.saveTask('j1', { ...j.tasks[1], status: 'success', error: undefined, url: 'https://x.com/1' })
-    expect(db.getJob('j1')!.tasks.map((t) => [t.id, t.status, t.error, t.url])).toEqual([
-      ['j1-t1', 'success', undefined, 'https://weibo.com/1'],
-      ['j1-t2', 'success', undefined, 'https://x.com/1'],
+    db.saveTask('j1', { ...j.tasks[1], status: 'success', error: undefined, warning: '第 2 张超出限制', url: 'https://x.com/1' })
+    expect(db.getJob('j1')!.tasks.map((t) => [t.id, t.status, t.error, t.warning, t.url])).toEqual([
+      ['j1-t1', 'success', undefined, undefined, 'https://weibo.com/1'],
+      ['j1-t2', 'success', undefined, '第 2 张超出限制', 'https://x.com/1'],
     ])
     db.removeJob('j1')
     expect(db.listJobs()).toEqual([])

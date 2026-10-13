@@ -18,6 +18,10 @@ export interface Account {
 export interface ImageAsset {
   /** 本地绝对路径 */
   path: string
+  /** 像素尺寸和文件大小，选图时读取，用来检查平台限制 */
+  width?: number
+  height?: number
+  bytes?: number
 }
 
 /** 发布配置的值，key 对应 PlatformSettingField.key */
@@ -97,6 +101,8 @@ export interface PublishTask {
   remoteId?: string | number
   url?: string
   error?: string
+  /** 不影响发布的提示，例如跳过了超出限制的图片 */
+  warning?: string
   startedAt?: number
   finishedAt?: number
 }
@@ -107,8 +113,10 @@ export interface PlatformLimits {
   contentMax: number
   minImages: number
   maxImages: number
-  /** 单张图片的大小上限（字节）。超过时发布前自动压缩，不改原图 */
+  /** 单张图片的大小上限（字节）。超过的图片编辑时警告，发布时跳过 */
   maxImageBytes?: number
+  /** 单张图片最长边的像素上限。超过的图片编辑时警告，发布时跳过 */
+  maxImageSide?: number
   requiresTitle: boolean
   maxTopics?: number
 }

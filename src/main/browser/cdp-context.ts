@@ -1,4 +1,5 @@
 import type { BrowserContext } from '../platforms/types'
+import { IS_DECOY } from '../anti-detection/decoy'
 import { ClickRejectedError, createHumanBehavior, sleep, type Rect } from '../anti-detection/human'
 
 export interface PageHandle {
@@ -72,11 +73,13 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
   const locate = (selector: string, text?: string) =>
     evaluate<Box | null>(`(() => {
       for (const old of document.querySelectorAll('[data-mxe-click]')) old.removeAttribute('data-mxe-click')
+      const isDecoy = ${IS_DECOY}
       const els = [...document.querySelectorAll(${q(selector)})]
       for (const found of els) {
         if (${q(text ?? '')} !== '' && !(found.textContent ?? '').includes(${q(text ?? '')})) continue
         // 按钮里的文字常设 pointer-events: none（如微博「发送」），鼠标事件落在外层按钮上，改为点它
         const el = getComputedStyle(found).pointerEvents === 'none' ? found.closest('button, a, [role="button"], label') ?? found : found
+        if (isDecoy(found) || isDecoy(el)) continue
         const style = getComputedStyle(el)
         if (style.display === 'none' || style.visibility === 'hidden') continue
         el.scrollIntoView({ block: 'center', inline: 'nearest' })
@@ -105,7 +108,7 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
       if (point.x < r.left || point.x > r.right || point.y < r.top || point.y > r.bottom) return false
       if (el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true' || style.pointerEvents === 'none' || style.visibility === 'hidden') return false
       const top = document.elementFromPoint(point.x, point.y)
-      return !!top && (top === el || el.contains(top))
+      return !!top && (top === el || el.contains(top)) && !${IS_DECOY}(top)
     })()`)
 
   const click = async (selector: string, text?: string) => {
@@ -234,7 +237,7 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
               const host = document.querySelector(${q(host)})
               if (!host || host.matches(':disabled') || host.getAttribute('aria-disabled') === 'true') return false
               const top = document.elementFromPoint(${point.x}, ${point.y})
-              return !!top && (top === host || host.contains(top))
+              return !!top && (top === host || host.contains(top)) && !${IS_DECOY}(top)
             })()`)
           })
           return

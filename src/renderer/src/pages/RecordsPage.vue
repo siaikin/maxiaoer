@@ -91,6 +91,9 @@ function jobActions(job: PublishJob) {
           <UTooltip v-if="t.error" :text="t.error">
             <span class="truncate text-error text-xs max-w-80">{{ t.error }}</span>
           </UTooltip>
+          <UTooltip v-else-if="t.warning" :text="t.warning">
+            <span class="truncate text-warning text-xs max-w-80">{{ t.warning }}</span>
+          </UTooltip>
           <div class="ml-auto flex gap-1">
             <UButton v-if="t.url && t.status === 'success'" :to="t.url" target="_blank" size="xs" variant="ghost" icon="i-lucide-external-link" label="查看" />
             <UButton v-if="t.status === 'failed'" size="xs" variant="ghost" icon="i-lucide-rotate-cw" label="重试" @click="retry(job, t)" />

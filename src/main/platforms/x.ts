@@ -11,8 +11,8 @@ export const x: PlatformAdapter = {
   color: '#000000',
   loginUrl: 'https://x.com/i/flow/login',
   homeUrl: 'https://x.com/home',
-  // 网页版超过 5MB 的图片会被静默丢掉
-  limits: { contentMax: 280, minImages: 0, maxImages: 4, maxImageBytes: 5_000_000, requiresTitle: false },
+  // 网页版超过 5MB 的图片会被静默丢掉；1968×17954 的长图前端缩放失败，报「图片大小超过上限」，1968×9089 的能发
+  limits: { contentMax: 280, minImages: 0, maxImages: 4, maxImageBytes: 5_000_000, maxImageSide: 16384, requiresTitle: false },
   settings: [
     {
       key: 'replies',
@@ -50,7 +50,19 @@ export const x: PlatformAdapter = {
     if (input.images.length) {
       onProgress(`上传 ${input.images.length} 张图片`)
       await ctx.setFiles('input[data-testid="fileInput"]', input.images)
-      await until(ctx, () => ctx.evaluate<boolean>(`document.querySelectorAll('[data-testid="attachments"] img').length >= ${input.images.length}`), 60_000, '图片上传超时')
+      // 图片被拒时只弹 toast，不会出现在附件里
+      const state = await until(
+        ctx,
+        () =>
+          ctx.evaluate<string>(`(() => {
+            const toast = document.querySelector('[data-testid="toast"]')?.textContent?.trim()
+            if (toast && /图片|image/i.test(toast)) return 'error:' + toast
+            return document.querySelectorAll('[data-testid="attachments"] img').length >= ${input.images.length} ? 'ok' : ''
+          })()`),
+        60_000,
+        '图片上传超时',
+      )
+      if (state.startsWith('error:')) throw new Error(`X 拒绝了图片：${state.slice(6)}`)
     }
 
     const replies = String(input.settings.replies ?? '每个人')

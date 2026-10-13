@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow } from 'electron'
-import type { Post, PublishJob, PublishTask } from '../shared/types'
+import type { ImageAsset, Post, PublishJob, PublishTask } from '../shared/types'
 import { contentFor, defaultSettings } from '../shared/types'
 import { findPublishedDuplicate } from '../shared/duplicate'
+import { skippedText, splitImages } from '../shared/images'
 import { validatePost } from '../shared/validate'
 import { beginTask } from './browser/queue'
 import { confirmSession } from './accounts'
 import { browserHost } from './browser'
-import { fitImages } from './images'
+import { imageInfo } from './images'
 import { getAdapter } from './platforms'
 import { getDb } from './store'
 
@@ -69,7 +70,7 @@ export async function retryTask(jobId: string, taskId: string) {
   const { job, task } = findTask(jobId, taskId)
   const force = task.status === 'skipped'
   await beginTask(inflight, task.id, () => {
-    Object.assign(task, { status: 'pending', error: undefined, progress: undefined })
+    Object.assign(task, { status: 'pending', error: undefined, warning: undefined, progress: undefined })
     getDb().saveTask(job.id, task)
     broadcast(job.id)
   }, () => runTaskBody(job, task, force))
@@ -94,26 +95,33 @@ async function runTaskBody(job: PublishJob, task: PublishTask, force = false) {
   const adapter = getAdapter(task.platform)
   // 这个平台单独设置过的图片、标题、正文、话题优先
   const content = contentFor(post, task.platform)
-  const errors = validatePost(content, adapter.limits)
-  if (errors.length) return update({ status: 'failed', error: errors.join('；') })
+  // 超出平台限制的图片不发；文件可能在编辑后被换过，按现在的文件重新读尺寸和大小
+  const { maxImageBytes, maxImageSide } = adapter.limits
+  let images: ImageAsset[]
+  try {
+    images = maxImageBytes || maxImageSide ? await Promise.all(content.images.map((i) => imageInfo(i.path))) : content.images
+  } catch (e) {
+    return update({ status: 'failed', error: `图片读取失败：${e instanceof Error ? e.message : String(e)}` })
+  }
+  const { kept, skipped } = splitImages(images, adapter.limits)
+  const warning = skippedText(skipped) || undefined
+  const errors = validatePost({ ...content, images: kept }, adapter.limits)
+  if (errors.length) return update({ status: 'failed', error: errors.join('；'), warning })
 
   // 开发时 MXE_DRY_RUN=1：表单填好后不提交，窗口保留
   const dryRun = !app.isPackaged && process.env.MXE_DRY_RUN === '1'
-  let cleanup = () => Promise.resolve()
   try {
     // 有界面但在屏幕外；需要扫码时适配器把窗口移回来。试运行时直接显示填好的页面
     const result = await browserHost().withBrowser(
       account.id,
       async (ctx) => {
         await confirmSession(account, ctx)
-        const images = await fitImages(content.images.map((i) => i.path), adapter.limits.maxImageBytes)
-        cleanup = images.cleanup
         return adapter.publish(
           ctx,
           {
             title: content.title,
             content: content.content,
-            images: images.paths,
+            images: kept.map((i) => i.path),
             topics: content.topics.slice(0, adapter.limits.maxTopics),
             settings: { ...defaultSettings(adapter.settings), ...post.settings[account.id] },
             dryRun,
@@ -126,15 +134,13 @@ async function runTaskBody(job: PublishJob, task: PublishTask, force = false) {
         keepOpen: dryRun,
         key: task.id,
         onWait: (progress) => update({ progress }),
-        onStart: () => update({ status: 'running', startedAt: Date.now(), progress: '准备中', error: undefined }),
+        onStart: () => update({ status: 'running', startedAt: Date.now(), progress: '准备中', error: undefined, warning }),
       },
     )
     if (dryRun) return update({ status: 'failed', error: '试运行：表单已填好，没有提交', progress: undefined, finishedAt: Date.now() })
     update({ status: 'success', ...result, progress: undefined, finishedAt: Date.now() })
   } catch (e) {
     update({ status: 'failed', error: e instanceof Error ? e.message : String(e), progress: undefined, finishedAt: Date.now() })
-  } finally {
-    await cleanup().catch(() => undefined)
   }
 }
 

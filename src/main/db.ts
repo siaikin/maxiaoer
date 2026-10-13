@@ -66,6 +66,7 @@ const MIGRATIONS = [
     fetched_at INTEGER NOT NULL
   );
   `,
+  `ALTER TABLE tasks ADD COLUMN warning TEXT;`,
 ]
 
 type Row = Record<string, any>
@@ -108,6 +109,7 @@ const toTask = (r: Row): PublishTask =>
     remoteId: opt(r.remote_id),
     url: opt(r.url),
     error: opt(r.error),
+    warning: opt(r.warning),
     startedAt: opt(r.started_at),
     finishedAt: opt(r.finished_at),
   })
@@ -240,10 +242,10 @@ export class Db {
     const pos = position ?? ((this.sql.prepare('SELECT position FROM tasks WHERE id = ?').get(t.id) as Row | undefined)?.position ?? 0)
     this.sql
       .prepare(
-        `INSERT INTO tasks (id, job_id, position, account_id, platform, status, progress, remote_id, url, error, started_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO tasks (id, job_id, position, account_id, platform, status, progress, remote_id, url, error, warning, started_at, finished_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET status = excluded.status, progress = excluded.progress, remote_id = excluded.remote_id, url = excluded.url,
-           error = excluded.error, started_at = excluded.started_at, finished_at = excluded.finished_at`,
+           error = excluded.error, warning = excluded.warning, started_at = excluded.started_at, finished_at = excluded.finished_at`,
       )
       .run(
         t.id,
@@ -256,6 +258,7 @@ export class Db {
         t.remoteId ?? null,
         t.url ?? null,
         t.error ?? null,
+        t.warning ?? null,
         t.startedAt ?? null,
         t.finishedAt ?? null,
       )

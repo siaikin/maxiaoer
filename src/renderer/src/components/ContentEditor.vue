@@ -14,6 +14,8 @@ const props = defineProps<{
   value: PostContent
   limits: ContentLimits
   overridden?: Partial<Record<ContentField, boolean>>
+  /** 图片路径 -> 超出平台限制的提示 */
+  imageWarnings?: Record<string, string>
 }>()
 const emit = defineEmits<{ update: [field: ContentField, value: PostContent[ContentField]]; reset: [field: ContentField] }>()
 
@@ -24,8 +26,8 @@ function setImages(images: ImageAsset[]) {
   emit('update', 'images', images)
 }
 async function pickImages() {
-  const paths = await window.maxiaoer.posts.pickImages()
-  setImages([...props.value.images, ...paths.filter((p) => !props.value.images.some((i) => i.path === p)).map((path) => ({ path }))])
+  const picked = await window.maxiaoer.posts.pickImages()
+  setImages([...props.value.images, ...picked.filter((p) => !props.value.images.some((i) => i.path === p.path))])
 }
 function moveImage(i: number, delta: number) {
   const list = [...props.value.images]
@@ -41,7 +43,9 @@ const imageRule = computed(() => {
   const max = `最多 ${l.max} 张${by(l.maxBy)}`
   return l.min ? `至少 ${l.min} 张${by(l.minBy)}，${max}` : max
 })
-const imageCount = computed(() => props.value.images.length)
+const skippedCount = computed(() => props.value.images.filter((i) => props.imageWarnings?.[i.path]).length)
+// 通用页上的图片可能只被部分平台跳过，张数仍按全部算，各平台的实际张数看右侧校验
+const imageCount = computed(() => props.value.images.length - (isPlatform.value ? skippedCount.value : 0))
 const imagesBad = computed(() => !!props.limits.images && (imageCount.value < props.limits.images.min || imageCount.value > props.limits.images.max))
 </script>
 
@@ -55,11 +59,19 @@ const imagesBad = computed(() => !!props.limits.images && (imageCount.value < pr
         <span class="tabular-nums" :class="{ 'text-error': imagesBad }">
           {{ imageCount }} 张<template v-if="limits.images">，{{ imageRule }}</template>
         </span>
+        <span v-if="skippedCount" class="text-warning">，{{ skippedCount }} 张超出限制会跳过</span>
       </template>
       <div class="flex flex-wrap gap-2">
         <div v-for="(img, i) in value.images" :key="img.path" class="relative group">
-          <img :src="localFileUrl(img.path)" class="size-24 rounded-md object-cover ring ring-default" />
+          <img
+            :src="localFileUrl(img.path)"
+            class="size-24 rounded-md object-cover ring"
+            :class="imageWarnings?.[img.path] ? 'ring-2 ring-warning opacity-60' : 'ring-default'"
+          />
           <UBadge v-if="i === 0" label="封面" size="sm" class="absolute left-1 top-1" />
+          <UTooltip v-if="imageWarnings?.[img.path]" :text="imageWarnings[img.path]">
+            <UBadge icon="i-lucide-triangle-alert" color="warning" size="sm" class="absolute right-1 top-1" />
+          </UTooltip>
           <div class="absolute inset-x-1 bottom-1 hidden justify-between group-hover:flex">
             <UButton icon="i-lucide-chevron-left" size="xs" color="neutral" :disabled="i === 0" @click="moveImage(i, -1)" />
             <UButton icon="i-lucide-chevron-right" size="xs" color="neutral" :disabled="i === value.images.length - 1" @click="moveImage(i, 1)" />

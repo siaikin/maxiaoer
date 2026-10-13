@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
+import { IS_DECOY } from '../anti-detection/decoy'
 import type { BrowserContext } from './types'
 
 const q = (s: string) => JSON.stringify(s)
@@ -11,9 +12,10 @@ const q = (s: string) => JSON.stringify(s)
 export async function mark(ctx: BrowserContext, selector: string, text: string, inner?: string) {
   const id = `mxe-${Math.random().toString(36).slice(2)}`
   const ok = await ctx.evaluate<boolean>(`(() => {
-    const el = [...document.querySelectorAll(${q(selector)})].find((e) => e.textContent.includes(${q(text)}))
+    const isDecoy = ${IS_DECOY}
+    const el = [...document.querySelectorAll(${q(selector)})].find((e) => !isDecoy(e) && e.textContent.includes(${q(text)}))
     const target = el && ${inner ? `el.querySelector(${q(inner)})` : 'el'}
-    if (!target) return false
+    if (!target || isDecoy(target)) return false
     target.setAttribute('data-mxe', ${q(id)})
     return true
   })()`)

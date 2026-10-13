@@ -1,6 +1,7 @@
 import { dialog, ipcMain } from 'electron'
 import type { TopicPreset } from '../shared/types'
 import { checkAccount, listCollections, loginWithBrowser, openAccount, relogin, removeAccount } from './accounts'
+import { imageInfo } from './images'
 import { adapters, platformInfo } from './platforms'
 import { deleteRemote, removeJob, retryTask, startPublish } from './publisher'
 import { getDb } from './store'
@@ -24,7 +25,7 @@ export function registerIpc() {
       properties: ['openFile', 'multiSelections'],
       filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }],
     })
-    return filePaths
+    return Promise.all(filePaths.map(imageInfo))
   })
 
   handle('publish:start', startPublish)

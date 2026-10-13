@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { commonLimits, platformLimits, resetOverride, setOverride } from '../../../shared/content'
 import { CONTENT_FIELDS, contentFor, withLastSettings, type Account, type ContentField, type PlatformId, type Post, type PostContent, type SettingValues } from '../../../shared/types'
+import { imageProblem, skippedText, splitImages } from '../../../shared/images'
 import { validatePost } from '../../../shared/validate'
 import AccountAvatar from '../components/AccountAvatar.vue'
 import AccountSettings from '../components/AccountSettings.vue'
@@ -68,9 +69,13 @@ function applyLast(a: Account) {
 /** 选中账号所在的平台，按平台列表顺序 */
 const selectedPlatforms = computed(() => platforms.value.filter((p) => selectedAccounts.value.some((a) => a.platform === p.id)))
 
-/** 按每个平台实际要发的内容（单独设置优先）校验 */
+/** 按每个平台实际要发的内容（单独设置优先）校验；超出限制的图片发布时跳过，不算进张数 */
 const issues = computed(() =>
-  selectedPlatforms.value.map((p) => ({ platform: p, errors: validatePost(contentFor(post, p.id), p.limits) })),
+  selectedPlatforms.value.map((p) => {
+    const content = contentFor(post, p.id)
+    const { kept, skipped } = splitImages(content.images, p.limits)
+    return { platform: p, errors: validatePost({ ...content, images: kept }, p.limits), warning: skippedText(skipped) }
+  }),
 )
 const blocked = computed(() => !selected.value.length || issues.value.some((i) => i.errors.length) || (scheduled.value && !scheduledAt.value))
 
@@ -81,12 +86,14 @@ watch(selectedPlatforms, (list) => {
 })
 const tabs = computed(() => [
   { label: '通用', value: 'common', icon: 'i-lucide-files' },
-  ...issues.value.map(({ platform, errors }) => ({
+  ...issues.value.map(({ platform, errors, warning }) => ({
     label: platform.name,
     value: platform.id,
     badge: errors.length
       ? { label: String(errors.length), color: 'error' as const, variant: 'solid' as const }
-      : post.overrides[platform.id]
+      : warning
+        ? { label: '!', color: 'warning' as const, variant: 'solid' as const }
+        : post.overrides[platform.id]
         ? { label: '单独', color: 'primary' as const, variant: 'subtle' as const }
         : undefined,
   })),
@@ -95,6 +102,19 @@ const editing = computed<PostContent>(() => (tab.value === 'common' ? post : con
 const editingLimits = computed(() =>
   tab.value === 'common' ? commonLimits(post, selectedPlatforms.value) : platformLimits(platformMap.value[tab.value].limits),
 )
+/** 当前标签页里超出限制的图片 -> 提示。通用页列出沿用通用图片、会跳过它的平台 */
+const imageWarnings = computed(() => {
+  const targets = tab.value === 'common' ? selectedPlatforms.value.filter((p) => !post.overrides[p.id]?.images) : [platformMap.value[tab.value]]
+  const out: Record<string, string> = {}
+  for (const img of editing.value.images) {
+    const hits = targets.flatMap((p) => {
+      const reason = imageProblem(img, p.limits)
+      return reason ? [`${p.name}：${reason}`] : []
+    })
+    if (hits.length) out[img.path] = `超出平台限制，发布时跳过。${hits.join('；')}`
+  }
+  return out
+})
 const overridden = computed(() => {
   if (tab.value === 'common') return undefined
   const o = post.overrides[tab.value] ?? {}
@@ -138,7 +158,14 @@ async function publish() {
       <p v-else class="text-sm text-muted">
         {{ platformMap[tab].name }}：没有单独设置的项沿用通用内容；在这里修改的项只发到{{ platformMap[tab].name }}。
       </p>
-      <ContentEditor :value="editing" :limits="editingLimits" :overridden="overridden" @update="updateField" @reset="resetField" />
+      <ContentEditor
+        :value="editing"
+        :limits="editingLimits"
+        :overridden="overridden"
+        :image-warnings="imageWarnings"
+        @update="updateField"
+        @reset="resetField"
+      />
     </UCard>
 
     <div class="space-y-4">
@@ -176,12 +203,16 @@ async function publish() {
           @click="tab = i.platform.id"
         >
           <UIcon
-            :name="i.errors.length ? 'i-lucide-circle-x' : 'i-lucide-circle-check'"
-            :class="i.errors.length ? 'text-error' : 'text-success'"
+            :name="i.errors.length ? 'i-lucide-circle-x' : i.warning ? 'i-lucide-triangle-alert' : 'i-lucide-circle-check'"
+            :class="i.errors.length ? 'text-error' : i.warning ? 'text-warning' : 'text-success'"
             class="size-4 mt-0.5 shrink-0"
           />
           <span class="font-medium shrink-0">{{ i.platform.name }}</span>
-          <span :class="i.errors.length ? 'text-error' : 'text-muted'">{{ i.errors.join('；') || '符合要求' }}</span>
+          <span class="space-y-0.5">
+            <span v-if="i.errors.length" class="block text-error">{{ i.errors.join('；') }}</span>
+            <span v-if="i.warning" class="block text-warning">{{ i.warning }}</span>
+            <span v-if="!i.errors.length && !i.warning" class="block text-muted">符合要求</span>
+          </span>
           <UBadge v-if="post.overrides[i.platform.id]" label="单独设置" size="sm" variant="subtle" class="ml-auto shrink-0" />
         </div>
       </UCard>

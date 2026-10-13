@@ -1,4 +1,4 @@
-import type { Account, Collection, PlatformId, PlatformInfo, Post, PublishJob, SettingValues, TopicPreset } from './types'
+import type { Account, Collection, ImageAsset, PlatformId, PlatformInfo, Post, PublishJob, SettingValues, TopicPreset } from './types'
 
 /** 主进程经 preload 暴露给渲染进程的 API */
 export interface MaxiaoerApi {
@@ -17,7 +17,8 @@ export interface MaxiaoerApi {
     collections(id: string, keyword: string, refresh?: boolean): Promise<Collection[]>
   }
   posts: {
-    pickImages(): Promise<string[]>
+    /** 选图并读出尺寸和大小 */
+    pickImages(): Promise<ImageAsset[]>
   }
   publish: {
     start(post: Post, accountIds: string[], scheduledAt?: number): Promise<PublishJob>
