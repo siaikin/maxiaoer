@@ -16,6 +16,12 @@ const api: MaxiaoerApi = {
     collections: invoke('accounts:collections'),
   },
   posts: { pickImages: invoke('posts:pickImages') },
+  materials: {
+    list: invoke('materials:list'),
+    importFiles: invoke('materials:importFiles'),
+    importUrl: invoke('materials:importUrl'),
+    select: invoke('materials:select'),
+  },
   publish: {
     start: invoke('publish:start'),
     jobs: invoke('publish:jobs'),

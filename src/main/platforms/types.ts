@@ -34,8 +34,8 @@ export interface BrowserContext {
   scroll(selector: string, deltaY: number): Promise<void>
   /** 给第 index 个匹配的 <input type=file> 设置本地文件 */
   setFiles(selector: string, files: string[], index?: number): Promise<void>
-  /** 执行 action，同时等待 URL 包含 urlPart 的请求返回，并解析其 JSON 响应 */
-  captureResponse<T = unknown>(urlPart: string, action: () => Promise<void>, timeoutMs?: number): Promise<T>
+  /** 执行 action，同时等待 URL 包含 urlPart 的请求返回。默认解析 JSON；parse 可读取原始文本，保留长数字 id 等信息 */
+  captureResponse<T = unknown>(urlPart: string, action: () => Promise<void>, timeoutMs?: number, parse?: (body: string) => T): Promise<T>
 }
 
 export interface AccountProfile {

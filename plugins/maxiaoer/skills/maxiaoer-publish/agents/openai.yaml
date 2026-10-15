@@ -1,0 +1,3 @@
+interface:
+  display_name: "蚂小儿图文发布"
+  short_description: "通过本机蚂小儿导入图片素材、校验图文并发布到用户指定的平台账号"

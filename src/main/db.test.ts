@@ -48,6 +48,27 @@ describe('Db', () => {
     expect(db.getPost('p1')).toEqual({ ...post, title: '改过的标题', updatedAt: 3 })
   })
 
+  it('B站冒泡账号、单独内容和长作品 id 在重新打开后仍保留', () => {
+    const file = join(tmp(), 'maxiaoer.db')
+    const db = new Db(file)
+    const bubbleAccount: Account = { ...account, platform: 'bilibili-bubble' }
+    const bubblePost: Post = { ...post, overrides: { 'bilibili-bubble': { content: '圈子正文' } } }
+    const bubbleJob: PublishJob = {
+      ...job('bubble-job', 1),
+      tasks: [{ id: 'bubble-task', accountId: account.id, platform: 'bilibili-bubble', status: 'success', remoteId: '1234567890123456789', url: 'https://www.bilibili.com/opus/1234567890123456789' }],
+    }
+    db.saveAccount(bubbleAccount)
+    db.savePost(bubblePost)
+    db.insertJob(bubbleJob)
+    db.close()
+
+    const again = new Db(file)
+    expect(again.getAccount(account.id)).toEqual(bubbleAccount)
+    expect(again.getPost(post.id)).toEqual(bubblePost)
+    expect(again.getJob(bubbleJob.id)).toEqual(bubbleJob)
+    again.close()
+  })
+
   it('任务更新只改状态字段，顺序不变', () => {
     const db = new Db(':memory:')
     db.insertJob(job('j1', 1))

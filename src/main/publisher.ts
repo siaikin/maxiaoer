@@ -11,6 +11,7 @@ import { browserHost } from './browser'
 import { imageInfo } from './images'
 import { getAdapter } from './platforms'
 import { getDb } from './store'
+import { recoverInterruptedJobs } from './publisher-recovery'
 
 /** 从库里重新读一遍再发，同一次发布的几个任务并行更新时不会互相覆盖 */
 function broadcast(jobId: string) {
@@ -180,6 +181,7 @@ export function removeJob(jobId: string) {
 
 /** 定时发布轮询 */
 export function startScheduler() {
+  for (const jobId of recoverInterruptedJobs(getDb())) void runJob(jobId)
   setInterval(() => {
     for (const job of getDb().listJobs()) {
       if (job.scheduledAt && job.scheduledAt <= Date.now() && job.tasks.some((t) => t.status === 'pending')) void runJob(job.id)

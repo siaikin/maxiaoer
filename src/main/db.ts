@@ -67,6 +67,17 @@ const MIGRATIONS = [
   );
   `,
   `ALTER TABLE tasks ADD COLUMN warning TEXT;`,
+  `CREATE TABLE mcp_drafts (
+    id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    job_id TEXT
+  );
+  CREATE TABLE mcp_publish_requests (
+    request_id TEXT PRIMARY KEY,
+    draft_id TEXT NOT NULL,
+    job_id TEXT NOT NULL
+  );`,
 ]
 
 type Row = Record<string, any>
@@ -266,6 +277,26 @@ export class Db {
 
   removeJob(id: string) {
     this.sql.prepare('DELETE FROM jobs WHERE id = ?').run(id)
+  }
+
+  // MCP 草稿与请求映射保留在本地；删除记录后仍保留映射，防止重放请求重新发布。
+  saveMcpDraft(id: string, payload: unknown) {
+    this.sql.prepare('INSERT INTO mcp_drafts (id, payload, created_at) VALUES (?, ?, ?)').run(id, json(payload), Date.now())
+  }
+
+  getMcpDraft(id: string): { payload: unknown; createdAt: number; jobId?: string } | undefined {
+    const row = this.sql.prepare('SELECT * FROM mcp_drafts WHERE id = ?').get(id)
+    return row ? { payload: JSON.parse(row.payload as string), createdAt: row.created_at as number, jobId: opt(row.job_id as string | null) } : undefined
+  }
+
+  getMcpRequest(id: string): { draftId: string; jobId: string } | undefined {
+    const row = this.sql.prepare('SELECT * FROM mcp_publish_requests WHERE request_id = ?').get(id)
+    return row ? { draftId: row.draft_id as string, jobId: row.job_id as string } : undefined
+  }
+
+  completeMcpDraft(draftId: string, requestId: string, jobId: string) {
+    this.sql.prepare('UPDATE mcp_drafts SET job_id = ? WHERE id = ?').run(jobId, draftId)
+    this.sql.prepare('INSERT INTO mcp_publish_requests (request_id, draft_id, job_id) VALUES (?, ?, ?)').run(requestId, draftId, jobId)
   }
 
   // ---- 话题合集 ----

@@ -1,8 +1,8 @@
 {
   "name": "maxiaoer",
   "private": true,
-  "version": "0.1.0",
-  "description": "一键发布图文到小红书 / 微博 / 微信公众号 / X / Facebook 的桌面工具（参考蚁小二）",
+  "version": "0.2.0",
+  "description": "一键发布图文到小红书 / 微博 / 微信公众号 / X / Facebook / 哔哩哔哩模型小站的桌面工具（参考蚁小二）",
   "type": "module",
   "main": "./out/main/index.js",
   "packageManager": "pnpm@10.28.0",
@@ -13,7 +13,9 @@
     "typecheck": "vue-tsc -p tsconfig.web.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "browser:prepare": "node scripts/prepare-browser.mjs",
-    "package": "pnpm browser:prepare && electron-vite build && electron-builder"
+    "package": "pnpm browser:prepare && electron-vite build && electron-builder",
+    "plugin:build": "node scripts/build-plugin.mjs",
+    "plugin:test": "node --test scripts/test-plugin.mjs"
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.142",
@@ -25,6 +27,8 @@
     "electron": "^44.7.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "esbuild": "0.28.2",
+    "fflate": "0.8.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^7.3.7",
@@ -42,7 +46,10 @@
     ]
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "cloakbrowser": "0.6.0",
-    "puppeteer-core": "^25.13.0"
+    "puppeteer-core": "^25.13.0",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.7"
   }
 }

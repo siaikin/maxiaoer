@@ -1,4 +1,5 @@
 import type { PlatformId, PlatformInfo } from '../../shared/types'
+import { bilibiliBubble } from './bilibili-bubble'
 import { facebook } from './facebook'
 import type { PlatformAdapter } from './types'
 import { wechatMp } from './wechat-mp'
@@ -12,6 +13,7 @@ export const adapters: Record<PlatformId, PlatformAdapter> = {
   'wechat-mp': wechatMp,
   x,
   facebook,
+  'bilibili-bubble': bilibiliBubble,
 }
 
 export const getAdapter = (id: PlatformId) => adapters[id]

@@ -277,11 +277,11 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
       if (!nodeIds[index]) throw new Error(`找不到上传控件：${selector}`)
       await cdp.send('DOM.setFileInputFiles', { nodeId: nodeIds[index], files })
     },
-    async captureResponse<T = unknown>(urlPart: string, action: () => Promise<void>, timeoutMs = 30_000): Promise<T> {
+    async captureResponse<T = unknown>(urlPart: string, action: () => Promise<void>, timeoutMs = 30_000, parse: (body: string) => T = JSON.parse): Promise<T> {
       const pending = new Set<string>()
       let settled = false
       let timer: ReturnType<typeof setTimeout> | undefined
-      let onResponse: (params: { requestId: string; response?: { url?: string } }) => void = () => undefined
+      let onResponse: (params: { requestId: string; type?: string; response?: { url?: string } }) => void = () => undefined
       let onFinished: (params: { requestId: string }) => void = () => undefined
       let onClose: () => void = () => undefined
       let rejectBody!: (error: unknown) => void
@@ -302,7 +302,8 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
         timer = setTimeout(() => fail(new Error(`等待接口响应超时：${urlPart}`)), timeoutMs)
         onClose = () => fail(new Error('页面已关闭'))
         onResponse = (params) => {
-          if (params.response?.url?.includes(urlPart)) pending.add(params.requestId)
+          // 跨域 POST 的预检也使用相同 URL，但没有业务响应正文。
+          if (params.type !== 'Preflight' && params.response?.url?.includes(urlPart)) pending.add(params.requestId)
         }
         onFinished = (params) => {
           if (settled || !pending.has(params.requestId)) return
@@ -310,7 +311,7 @@ export async function createPageContext(page: PageHandle, cdp: CdpClient, option
           off()
           void cdp
             .send<{ body: string; base64Encoded: boolean }>('Network.getResponseBody', { requestId: params.requestId })
-            .then((response) => resolve(JSON.parse(response.base64Encoded ? Buffer.from(response.body, 'base64').toString() : response.body)))
+            .then((response) => resolve(parse(response.base64Encoded ? Buffer.from(response.body, 'base64').toString() : response.body)))
             .catch(reject)
         }
         page.on('close', onClose)

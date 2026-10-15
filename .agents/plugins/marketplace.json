@@ -1,0 +1,12 @@
+{
+  "name": "maxiaoer-plugins",
+  "interface": { "displayName": "蚂小儿插件" },
+  "plugins": [
+    {
+      "name": "maxiaoer",
+      "source": { "source": "local", "path": "./plugins/maxiaoer" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

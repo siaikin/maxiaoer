@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { ContentLimits, FieldLimit } from '../../../shared/content'
 import type { ContentField, ImageAsset, PostContent } from '../../../shared/types'
-import { localFileUrl } from '../composables/useAppState'
+import { errorText, localFileUrl } from '../composables/useAppState'
+import { useMaterials } from '../composables/useMaterials'
 import FieldLabel from './FieldLabel.vue'
 import TopicInput from './TopicInput.vue'
 
@@ -21,13 +22,54 @@ const emit = defineEmits<{ update: [field: ContentField, value: PostContent[Cont
 
 const isPlatform = computed(() => !!props.overridden)
 const len = (s: string) => [...s].length
+const toast = useToast()
+const picking = ref(false)
+const libraryOpen = ref(false)
+const librarySelecting = ref(false)
+const selectedMaterials = ref<string[]>([])
+const {
+  materials, loading: libraryLoading, error: libraryError,
+  search: librarySearch, filtered: filteredMaterials, refresh: loadLibrary,
+} = useMaterials()
 
 function setImages(images: ImageAsset[]) {
   emit('update', 'images', images)
 }
 async function pickImages() {
-  const picked = await window.maxiaoer.posts.pickImages()
+  picking.value = true
+  try {
+    addImages(await window.maxiaoer.posts.pickImages())
+  } catch (e) {
+    toast.add({ title: '导入图片失败', description: errorText(e), color: 'error' })
+  } finally {
+    picking.value = false
+  }
+}
+function addImages(picked: ImageAsset[]) {
   setImages([...props.value.images, ...picked.filter((p) => !props.value.images.some((i) => i.path === p.path))])
+}
+function openLibrary() {
+  selectedMaterials.value = []
+  librarySearch.value = ''
+  libraryOpen.value = true
+  void loadLibrary()
+}
+function toggleMaterial(id: string) {
+  selectedMaterials.value = selectedMaterials.value.includes(id)
+    ? selectedMaterials.value.filter((value) => value !== id)
+    : [...selectedMaterials.value, id]
+}
+async function selectMaterials() {
+  librarySelecting.value = true
+  libraryError.value = ''
+  try {
+    addImages(await window.maxiaoer.materials.select([...selectedMaterials.value]))
+    libraryOpen.value = false
+  } catch (e) {
+    libraryError.value = errorText(e)
+  } finally {
+    librarySelecting.value = false
+  }
 }
 function moveImage(i: number, delta: number) {
   const list = [...props.value.images]
@@ -65,6 +107,7 @@ const imagesBad = computed(() => !!props.limits.images && (imageCount.value < pr
         <div v-for="(img, i) in value.images" :key="img.path" class="relative group">
           <img
             :src="localFileUrl(img.path)"
+            :alt="`待发布图片 ${i + 1}`"
             class="size-24 rounded-md object-cover ring"
             :class="imageWarnings?.[img.path] ? 'ring-2 ring-warning opacity-60' : 'ring-default'"
           />
@@ -85,13 +128,24 @@ const imagesBad = computed(() => !!props.limits.images && (imageCount.value < pr
           />
         </div>
         <button
-          class="size-24 rounded-md border border-dashed border-accented flex flex-col items-center justify-center gap-1 text-muted text-sm hover:border-primary hover:text-primary"
+          type="button"
+          :disabled="picking"
+          class="size-24 rounded-md border border-dashed border-accented flex flex-col items-center justify-center gap-1 text-muted text-sm hover:border-primary hover:text-primary disabled:opacity-50"
           @click="pickImages"
         >
-          <UIcon name="i-lucide-image-plus" class="size-6" />
-          添加图片
+          <UIcon :name="picking ? 'i-lucide-loader-circle' : 'i-lucide-image-plus'" class="size-6" :class="{ 'animate-spin': picking }" />
+          {{ picking ? '正在导入' : '导入图片' }}
+        </button>
+        <button
+          type="button"
+          class="size-24 rounded-md border border-dashed border-accented flex flex-col items-center justify-center gap-1 text-muted text-sm hover:border-primary hover:text-primary"
+          @click="openLibrary"
+        >
+          <UIcon name="i-lucide-images" class="size-6" />
+          从素材库选择
         </button>
       </div>
+      <p class="mt-2 text-xs text-muted">导入图片会保存副本到素材库，原文件移动或删除后仍可使用。</p>
     </UFormField>
 
     <UFormField>
@@ -145,5 +199,47 @@ const imagesBad = computed(() => !!props.limits.images && (imageCount.value < pr
       <TopicInput :model-value="value.topics" :max="limits.topics?.max" @update:model-value="emit('update', 'topics', $event)" />
     </UFormField>
   </div>
-</template>
 
+  <UModal v-model:open="libraryOpen" title="从素材库选择图片" description="按选择顺序追加到当前内容，加入后可调整顺序和封面。" :ui="{ content: 'max-w-3xl' }" :dismissible="!librarySelecting">
+    <template #body>
+      <div class="space-y-3">
+        <div class="flex gap-2">
+          <UInput v-model="librarySearch" icon="i-lucide-search" placeholder="搜索图片名称或素材 ID" class="flex-1" />
+          <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" label="刷新" :loading="libraryLoading" :disabled="librarySelecting" @click="loadLibrary" />
+        </div>
+        <UAlert v-if="libraryError" color="error" variant="subtle" icon="i-lucide-circle-alert" :description="libraryError" />
+        <div v-if="libraryLoading" class="py-12 text-center text-sm text-muted">正在读取素材库…</div>
+        <UEmpty v-else-if="!materials.length && !libraryError" icon="i-lucide-images" title="还没有图片素材" description="先关闭此窗口并导入图片，或前往素材库导入图片链接。" />
+        <UEmpty v-else-if="materials.length && !filteredMaterials.length" icon="i-lucide-search" title="没有找到图片" description="试试其他名称或素材 ID。" />
+        <div v-else class="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-[55vh] overflow-y-auto p-1">
+          <button
+            v-for="m in filteredMaterials"
+            :key="m.id"
+            type="button"
+            :aria-pressed="selectedMaterials.includes(m.id)"
+            :disabled="librarySelecting"
+            class="relative overflow-hidden rounded-lg ring text-left transition focus-visible:outline-2 focus-visible:outline-primary"
+            :class="selectedMaterials.includes(m.id) ? 'ring-2 ring-primary bg-primary/10' : 'ring-default hover:ring-primary'"
+            @click="toggleMaterial(m.id)"
+          >
+            <img :src="m.previewUrl" :alt="m.name" loading="lazy" class="aspect-square w-full object-contain bg-elevated" />
+            <UBadge v-if="selectedMaterials.includes(m.id)" :label="String(selectedMaterials.indexOf(m.id) + 1)" class="absolute top-2 right-2" />
+            <div class="p-2">
+              <p class="truncate text-xs font-medium" :title="m.name">{{ m.name }}</p>
+              <p class="text-xs text-muted mt-1">{{ m.width }} × {{ m.height }}</p>
+            </div>
+          </button>
+        </div>
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex items-center justify-between gap-3 w-full">
+        <span class="text-sm text-muted">已选 {{ selectedMaterials.length }} 张</span>
+        <div class="flex gap-2">
+          <UButton color="neutral" variant="ghost" label="取消" :disabled="librarySelecting" @click="libraryOpen = false" />
+          <UButton label="加入内容" :disabled="!selectedMaterials.length || libraryLoading || librarySelecting" :loading="librarySelecting" @click="selectMaterials" />
+        </div>
+      </div>
+    </template>
+  </UModal>
+</template>

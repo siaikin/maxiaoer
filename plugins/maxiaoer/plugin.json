@@ -1,0 +1,31 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "maxiaoer",
+  "version": "0.2.0",
+  "description": "通过本机蚂小儿导入图片素材、预览图文并发布到指定的平台账号。需要先运行蚂小儿桌面应用和 Node.js 22+。",
+  "author": {
+    "name": "siaikin",
+    "url": "https://github.com/siaikin"
+  },
+  "homepage": "https://github.com/siaikin/maxiaoer",
+  "repository": "https://github.com/siaikin/maxiaoer",
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "蚂小儿",
+        "shortDescription": "本机图片素材管理与多平台图文发布",
+        "developerName": "siaikin",
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "用蚂小儿列出已绑定的账号。",
+          "用蚂小儿准备这些图片和文案，先给我发布预览。"
+        ]
+      }
+    }
+  }
+}

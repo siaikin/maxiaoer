@@ -19,3 +19,6 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm plugin:build
+      - run: pnpm plugin:test
+      - run: git diff --exit-code -- plugins/maxiaoer

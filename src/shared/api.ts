@@ -1,4 +1,10 @@
 import type { Account, Collection, ImageAsset, PlatformId, PlatformInfo, Post, PublishJob, SettingValues, TopicPreset } from './types'
+import type { Material } from './materials'
+
+/** 桌面端素材预览；外部调用只使用素材 id */
+export interface MaterialPreview extends Material {
+  previewUrl: string
+}
 
 /** 主进程经 preload 暴露给渲染进程的 API */
 export interface MaxiaoerApi {
@@ -17,8 +23,17 @@ export interface MaxiaoerApi {
     collections(id: string, keyword: string, refresh?: boolean): Promise<Collection[]>
   }
   posts: {
-    /** 选图并读出尺寸和大小 */
+    /** 选图、复制到素材库，并读出尺寸和大小 */
     pickImages(): Promise<ImageAsset[]>
+  }
+  materials: {
+    list(): Promise<MaterialPreview[]>
+    /** 选择本地图片，保存副本到素材库 */
+    importFiles(): Promise<MaterialPreview[]>
+    /** 下载图片链接，保存副本到素材库 */
+    importUrl(url: string): Promise<MaterialPreview>
+    /** 将素材 id 转为内部发布所需的托管图片 */
+    select(ids: string[]): Promise<ImageAsset[]>
   }
   publish: {
     start(post: Post, accountIds: string[], scheduledAt?: number): Promise<PublishJob>

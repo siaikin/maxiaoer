@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultSettings, PLATFORM_IDS } from '../../shared/types'
-import { adapters } from './index'
+import { adapters, getAdapter, platformInfo } from './index'
 
 describe('adapters', () => {
   it('has one adapter per platform with a matching id', () => {
@@ -12,6 +12,14 @@ describe('adapters', () => {
       for (const f of a.settings) if (f.type === 'select') expect(f.options).toContain(f.default)
       expect(Object.keys(defaultSettings(a.settings))).toHaveLength(a.settings.length)
     }
+  })
+
+  it('B站冒泡账号入口与发布平台信息指向指定圈子', () => {
+    const adapter = getAdapter('bilibili-bubble')
+    expect(new URL(adapter.homeUrl).pathname).toBe('/bubble/home/26')
+    const info = JSON.parse(JSON.stringify(platformInfo(adapter)))
+    expect(info).toMatchObject({ id: 'bilibili-bubble', name: adapter.name, limits: adapter.limits, settings: adapter.settings })
+    expect(info.canDelete).toBe(typeof adapter.deleteRemote === 'function')
   })
 })
 

@@ -1,5 +1,5 @@
 /** 支持的平台 */
-export const PLATFORM_IDS = ['xiaohongshu', 'weibo', 'wechat-mp', 'x', 'facebook'] as const
+export const PLATFORM_IDS = ['xiaohongshu', 'weibo', 'wechat-mp', 'x', 'facebook', 'bilibili-bubble'] as const
 export type PlatformId = (typeof PLATFORM_IDS)[number]
 
 /** 账号：一个平台上的一个登录身份，对应一份独立的指纹浏览器资料 */
