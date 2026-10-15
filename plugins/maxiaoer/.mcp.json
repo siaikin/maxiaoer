@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "maxiaoer": {
-      "command": "node",
+      "command": "/bin/sh",
       "args": [
-        "./server.cjs"
+        "./launch-mcp.sh"
       ],
       "cwd": ".",
       "startup_timeout_sec": 20,

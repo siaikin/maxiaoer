@@ -36,7 +36,7 @@ await json('plugin.json', {
 })
 await json('mcp.json', {
   $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
-  mcpServers: { maxiaoer: { type: 'stdio', command: 'node', args: ['${PLUGIN_ROOT}/server.cjs'], cwd: '${PLUGIN_ROOT}' } },
+  mcpServers: { maxiaoer: { type: 'stdio', command: '/bin/sh', args: ['${PLUGIN_ROOT}/launch-mcp.sh'], cwd: '${PLUGIN_ROOT}' } },
 })
 // 兼容仍读取 Codex 旧清单格式的桌面端和 CLI。
 const manifest = JSON.parse(await readFile(join(output, 'plugin.json'), 'utf8'))
@@ -47,8 +47,9 @@ await json('.codex-plugin/plugin.json', {
   requires_local_executor: true, interface: manifest.extensions['com.openai'].interface,
 })
 await json('.mcp.json', {
-  mcpServers: { maxiaoer: { command: 'node', args: ['./server.cjs'], cwd: '.', startup_timeout_sec: 20, tool_timeout_sec: 120 } },
+  mcpServers: { maxiaoer: { command: '/bin/sh', args: ['./launch-mcp.sh'], cwd: '.', startup_timeout_sec: 20, tool_timeout_sec: 120 } },
 })
+await cp(join(root, 'scripts/launch-mcp.sh'), join(output, 'launch-mcp.sh'))
 await cp(join(root, 'skills'), join(output, 'skills'), { recursive: true })
 await cp(join(root, 'docs/plugin-install.md'), join(output, 'README.md'))
 

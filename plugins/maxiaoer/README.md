@@ -11,7 +11,7 @@ codex plugin marketplace add siaikin/maxiaoer
 codex plugin add maxiaoer@maxiaoer-plugins
 ```
 
-重新打开桌面客户端，在本地对话中输入“用蚂小儿列出已绑定的账号”。也可以在插件目录中选择“蚂小儿插件”来源并安装“蚂小儿”。若未显示，完全退出并重新打开客户端。Node.js 的 `node` 命令需要在客户端的 PATH 中可用。
+重新打开桌面客户端，在本地对话中输入“用蚂小儿列出已绑定的账号”。也可以在插件目录中选择“蚂小儿插件”来源并安装“蚂小儿”。若未显示，完全退出并重新打开客户端。macOS/Linux 插件使用 `/bin/sh` 启动器，依次检查 `MAXIAOER_NODE_PATH`（显式指定）、Codex 提供的 `CODEX_MCP_NODE_PATH`、PATH，以及 Homebrew、Volta、nvm、fnm 的常见安装位置，要求 Node.js 22+。不会加载 shell 配置文件。
 
 插件通过本地连接文件 `~/.maxiaoer/mcp.json` 读取随机端口与令牌；配置和发布包不包含用户令牌、登录信息、素材或发布记录。蚂小儿重启后需重连 MCP。已有手工注册的 `maxiaoer` MCP 或独立 Skill 时，安装插件后可以移除旧配置，避免重复工具和技能。
 
@@ -31,14 +31,14 @@ codex plugin add maxiaoer@maxiaoer-plugins
 {
   "mcpServers": {
     "maxiaoer": {
-      "command": "node",
-      "args": ["/absolute/path/to/maxiaoer-plugin/server.cjs"]
+      "command": "/bin/sh",
+      "args": ["/absolute/path/to/maxiaoer-plugin/launch-mcp.sh"]
     }
   }
 }
 ```
 
-Codex 手工配置等价命令为 `codex mcp add maxiaoer -- node /absolute/path/to/maxiaoer-plugin/server.cjs`。不要同时使用插件和手工方式注册同一个 MCP。
+Codex 手工配置等价命令为 `codex mcp add maxiaoer -- /bin/sh /absolute/path/to/maxiaoer-plugin/launch-mcp.sh`。不要同时使用插件和手工方式注册同一个 MCP。
 
 ## 启动蚂小儿与使用
 
@@ -59,3 +59,9 @@ pnpm dev
 更新市场：`codex plugin marketplace upgrade maxiaoer-plugins`，然后在客户端更新或重新安装插件。插件目录 `plugins/maxiaoer` 由 `pnpm plugin:build` 生成，请修改原始 `scripts/`、`skills/` 和本安装说明后重新生成。发布前运行项目检查与 `pnpm plugin:test`。
 
 格式与安装方式参考 [OpenAI 插件打包文档](https://developers.openai.com/plugins/build/plugins)；公共目录限制参考 [桌面插件提交要求](https://developers.openai.com/plugins/deploy/desktop-only)。
+
+## 桌面端提示“找不到文件”
+
+若 MCP 在启动阶段报 `No such file or directory (os error 2)`，但终端中 `node --version` 正常，可能是桌面客户端没有继承 nvm 等工具设置的 PATH，尚未执行桥接程序就找不到 `node`。这与蚂小儿账号、令牌或端口无关。升级后的启动器会查找常见安装位置；非标准位置可在 MCP 配置的 `env` 中添加 `MAXIAOER_NODE_PATH`，值为本机 Node.js 22+ 可执行文件的绝对路径。指定的路径无效时会明确报错，不会静默换用其他版本。
+
+不要将开发者机器的 Node 绝对路径写进发布包。Windows 原生客户端不使用此 POSIX 启动器，请手动配置 `command` 为本机 `node.exe` 的完整路径，`args` 为插件 `server.cjs` 的完整路径。配置修改后重新连接 MCP。

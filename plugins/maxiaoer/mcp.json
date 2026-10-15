@@ -3,9 +3,9 @@
   "mcpServers": {
     "maxiaoer": {
       "type": "stdio",
-      "command": "node",
+      "command": "/bin/sh",
       "args": [
-        "${PLUGIN_ROOT}/server.cjs"
+        "${PLUGIN_ROOT}/launch-mcp.sh"
       ],
       "cwd": "${PLUGIN_ROOT}"
     }
